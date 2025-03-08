@@ -1,0 +1,86 @@
+# 💾 Python стандартные файлы
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.swp
+*.swo
+*.bak
+*.orig
+
+# 🚀 Virtual Environment (venv)
+.venv/
+venv/
+ENV/
+env/
+*.env
+.envrc
+
+# 📜 Лог-файлы
+*.log
+logs/
+debug.log
+
+# 🔥 IDE / Редакторы
+.vscode/
+.idea/
+*.iml
+*.sublime-project
+*.sublime-workspace
+
+# 📂 OS / Системные файлы
+.DS_Store
+Thumbs.db
+
+# 📦 Pip / Poetry / Conda
+pip-log.txt
+pip-delete-this-directory.txt
+poetry.lock
+poetry.toml
+Pipfile
+Pipfile.lock
+
+# 🐍 Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# 🐳 Docker
+docker-compose.override.yml
+.dockerignore
+
+# 🏗️ SQLAlchemy / Alembic
+migrations/versions/
+alembic.ini
+migrations/env.py
+migrations/README
+migrations/script.py.mako
+
+# 🤖 Telegram Bot / aiogram
+bot/token.json
+bot/.session/
+
+# 🔑 SSH / Keys / Auth
+*.pem
+*.key
+*.crt
+config.ini
+
+# 📊 SQLite / PostgreSQL / DB
+*.sqlite3
+*.db
+*.sql
+*.psql
+*.pgsql
+
+# 📁 Node.js / npm
+node_modules/
+package-lock.json
+yarn.lock
+
+# 🔄 Cache / Temp
+cache/
+tmp/
+temp/
+*.cache
+*.tmp
