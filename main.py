@@ -9,7 +9,7 @@ from aiogram_dialog import setup_dialogs
 
 from configurations import get_config
 from bot import get_all_routers
-from bot.middlewares.db_middleware import initialize_database  # ✅ Подключаем мидлвару
+#from bot.middlewares.db_middleware import initialize_database  # ✅ Подключаем мидлвару
 
 current_directory = os.path.dirname(os.path.abspath(__file__))
 log_file_path = os.path.join(current_directory, 'application.log')
@@ -37,7 +37,7 @@ async def run_bot():
     setup_dialogs(dp)
 
     # ✅ Теперь инициализируем базу через `initialize_database()`
-    await initialize_database()
+    #await initialize_database()
     logging.info("✅ Таблицы проверены/созданы в базе данных!")
 
     try:

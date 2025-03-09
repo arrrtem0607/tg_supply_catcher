@@ -110,5 +110,17 @@ class ORMController:
         )
         return result.scalars().first()
 
+    @session_manager
+    async def get_clients_by_user_id(self, session, tg_id: int):
+        """Получение списка всех кабинетов пользователя"""
+        result = await session.execute(
+            select(Client).where(Client.user_id == tg_id)
+        )
+        clients = result.scalars().all()
+
+        logger.info(f"📋 Найдено {len(clients)} кабинетов для пользователя {tg_id}")
+        return clients
+
+
 
 

@@ -5,7 +5,7 @@ from aiogram_dialog.widgets.input import TextInput
 from aiogram_dialog import DialogManager
 from aiogram.types import Message, CallbackQuery
 
-from bot.utils.statesform import ClientStates, MainMenu
+from bot.utils.statesform import AddClientStates, MainMenu
 from database.controller.ORM import ORMController
 
 orm_controller = ORMController()
@@ -61,7 +61,7 @@ add_client_dialog = Dialog(
         Row(
             Button(Jinja("🔙 Назад"), id="back", on_click=lambda c, w, m: m.start(MainMenu.MAIN_MENU, show_mode=ShowMode.EDIT)),
         ),
-        state=ClientStates.ENTER_NAME,
+        state=AddClientStates.ENTER_NAME,
         parse_mode="HTML",
     ),
 
@@ -83,9 +83,9 @@ add_client_dialog = Dialog(
             on_success=go_to_next_step,
         ),
         Row(
-            Button(Jinja("🔙 Назад"), id="back", on_click=lambda c, w, m: m.switch_to(ClientStates.ENTER_NAME, show_mode=ShowMode.EDIT)),
+            Button(Jinja("🔙 Назад"), id="back", on_click=lambda c, w, m: m.switch_to(AddClientStates.ENTER_NAME, show_mode=ShowMode.EDIT)),
         ),
-        state=ClientStates.ENTER_COOKIES,
+        state=AddClientStates.ENTER_COOKIES,
         getter=get_client_data,
         parse_mode="HTML",
     ),
@@ -100,9 +100,9 @@ add_client_dialog = Dialog(
         ),
         Row(
             Button(Jinja("✅ Подтвердить"), id="confirm", on_click=confirm_client_data),
-            Button(Jinja("🔙 Назад"), id="back", on_click=lambda c, w, m: m.switch_to(ClientStates.ENTER_COOKIES, show_mode=ShowMode.EDIT)),
+            Button(Jinja("🔙 Назад"), id="back", on_click=lambda c, w, m: m.switch_to(AddClientStates.ENTER_COOKIES, show_mode=ShowMode.EDIT)),
         ),
-        state=ClientStates.CONFIRMATION,
+        state=AddClientStates.CONFIRMATION,
         getter=get_client_data,
         parse_mode="HTML",
     ),

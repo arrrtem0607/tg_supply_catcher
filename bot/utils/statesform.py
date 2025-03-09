@@ -11,11 +11,21 @@ class InfoStates(StatesGroup):
 
 from aiogram.fsm.state import StatesGroup, State
 
-class ClientStates(StatesGroup):
+from aiogram.fsm.state import State, StatesGroup
+
+
+class AddClientStates(StatesGroup):
+    """Состояния для добавления кабинета"""
     ENTER_NAME = State()  # Ввод имени кабинета
-    SEND_INSTRUCTION = State()  # Инструкция по выгрузке Cookies
     ENTER_COOKIES = State()  # Ввод Cookies
     CONFIRMATION = State()  # Подтверждение добавления
+
+class ManageClientStates(StatesGroup):
+    """Состояния для управления существующими кабинетами"""
+    CHOOSE_CLIENT = State()  # Выбор кабинета из списка
+    CHOOSE_ACTION = State()  # Выбор действия
+    CLIENT_SUPPLIES = State()  # Просмотр поставок клиента
+    UPDATE_CLIENT = State()  # Обновление данных клиента
 
 
 class SupplyStates(StatesGroup):

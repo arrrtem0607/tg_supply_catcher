@@ -1,8 +1,8 @@
-from aiogram_dialog import Dialog, Window
+from aiogram_dialog import Dialog, Window, ShowMode
 from aiogram_dialog.widgets.kbd import Button, Column
 from aiogram_dialog.widgets.text import Jinja
 
-from bot.utils.statesform import MainMenu, PriceStates, InfoStates, ClientStates
+from bot.utils.statesform import MainMenu, PriceStates, InfoStates, AddClientStates, ManageClientStates
 from aiogram_dialog import DialogManager
 from aiogram.types import CallbackQuery
 
@@ -17,13 +17,13 @@ async def get_main_menu_data(dialog_manager: DialogManager, **kwargs):
 
 
 async def on_my_clients(callback: CallbackQuery, widget, manager: DialogManager):
-    """Обработчик нажатия на кнопку '👥 Мои кабинеты'"""
-    await callback.answer("Раздел 'Мои кабинеты' в разработке!")
+    """Переход в диалог выбора кабинетов"""
+    await manager.start(ManageClientStates.CHOOSE_CLIENT, show_mode=ShowMode.DELETE_AND_SEND)
 
 
 async def on_add_client(callback: CallbackQuery, widget, manager: DialogManager):
     """Обработчик нажатия на кнопку '➕ Добавить кабинет'"""
-    await manager.start(state=ClientStates.ENTER_NAME)  # ✅ Переход в состояние добавления кабинета
+    await manager.start(state=AddClientStates.ENTER_NAME)  # ✅ Переход в состояние добавления кабинета
 
 
 async def on_price(callback: CallbackQuery, widget, manager: DialogManager):
