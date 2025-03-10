@@ -1,9 +1,12 @@
 import logging
 from sqlalchemy import inspect, text, select
+import aiohttp
+
 from database.entities.core import Base, Database
 from database.entities.models import User
 from database.entities.models import Client
 from datetime import datetime, timezone
+
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +27,7 @@ def session_manager(func):
     return wrapper
 
 class ORMController:
+    BASE_URL = "https://goapimpwave.ru"  # Базовый URL API
     def __init__(self, db: Database = Database()):
         self.db = db
         logger.info("ORMController initialized")
@@ -121,6 +125,37 @@ class ORMController:
         logger.info(f"📋 Найдено {len(clients)} кабинетов для пользователя {tg_id}")
         return clients
 
+    @session_manager
+    async def get_supplies_by_client(self, session, user_id: int, client_id: int):
+        """Получить список поставок для указанного клиента (client_id), принадлежащего user_id"""
 
+        # Проверяем, принадлежит ли клиент пользователю
+        result = await session.execute(
+            select(Client).where(Client.client_id == client_id, Client.user_id == user_id)
+        )
+        client = result.scalars().first()
 
+        if not client:
+            logger.warning(f"⚠️ Пользователь {user_id} пытался получить поставки не своего клиента ({client_id})!")
+            return []
 
+        # Запрос к API
+        url = f"{self.BASE_URL}/catcher/all_supplies"
+        params = {"client_id": client_id}
+
+        async with aiohttp.ClientSession() as http_session:
+            try:
+                async with http_session.get(url, params=params) as response:
+                    if response.status == 200:
+                        supplies = await response.json()
+
+                        # 🔥 Логируем JSON для анализа
+                        logger.info(f"📦 JSON ответа API: {supplies}")
+
+                        return supplies
+                    else:
+                        logger.error(f"❌ Ошибка запроса поставок: {response.status}")
+                        return []
+            except Exception as e:
+                logger.error(f"❌ Ошибка при получении поставок: {e}", exc_info=True)
+                return []

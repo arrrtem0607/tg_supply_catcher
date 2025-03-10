@@ -9,11 +9,6 @@ class PriceStates(StatesGroup):
 class InfoStates(StatesGroup):
     ABOUT_SERVICE = State()  # ℹ️ О сервисе
 
-from aiogram.fsm.state import StatesGroup, State
-
-from aiogram.fsm.state import State, StatesGroup
-
-
 class AddClientStates(StatesGroup):
     """Состояния для добавления кабинета"""
     ENTER_NAME = State()  # Ввод имени кабинета
@@ -21,12 +16,11 @@ class AddClientStates(StatesGroup):
     CONFIRMATION = State()  # Подтверждение добавления
 
 class ManageClientStates(StatesGroup):
-    """Состояния для управления существующими кабинетами"""
-    CHOOSE_CLIENT = State()  # Выбор кабинета из списка
-    CHOOSE_ACTION = State()  # Выбор действия
-    CLIENT_SUPPLIES = State()  # Просмотр поставок клиента
-    UPDATE_CLIENT = State()  # Обновление данных клиента
-
+    CHOOSE_CLIENT = State()  # Выбор кабинета
+    CHOOSE_ACTION = State()  # Выбор действия с кабинетом
+    CLIENT_SUPPLIES = State()  # 📦 Просмотр поставок
+    SUPPLY_ACTIONS = State()  # Действия с выбранной поставкой
+    UPDATE_CLIENT = State()  # 🔄 Обновление данных
 
 class SupplyStates(StatesGroup):
     CHOOSE_SUPPLY = State()  # 📦 Выбор поставки
