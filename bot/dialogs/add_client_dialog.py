@@ -17,32 +17,30 @@ async def get_client_data(dialog_manager: DialogManager, **kwargs):
         "cookies": dialog_manager.find("cookies").get_value() or "Нет данных"
     }
 
-
 async def go_to_next_step(message: Message, widget, manager: DialogManager, value: str):
     """Функция для перехода к следующему шагу"""
     await manager.next(show_mode=ShowMode.DELETE_AND_SEND)
 
 async def confirm_client_data(callback: CallbackQuery, widget, manager: DialogManager):
-    """Подтверждение добавления кабинета и его сохранение в БД"""
+    """Подтверждение добавления кабинета, регистрация через API и сохранение в БД."""
 
     tg_id = callback.from_user.id
     name = manager.find("client_name").get_value() or "Без имени"
     cookies = manager.find("cookies").get_value() or "{}"
 
-    # Проверяем, существует ли уже такой кабинет
-    existing_client = await orm_controller.get_client_by_name(tg_id=tg_id, name=name)
-    if existing_client:
-        await callback.message.answer(f"⚠️ Кабинет <b>{name}</b> уже существует!", parse_mode="HTML")
-        await manager.done(show_mode=ShowMode.DELETE_AND_SEND)
-        return
+    # ✅ Вызываем ORM-контроллер для регистрации клиента
+    result = await orm_controller.register_client(tg_id, name, cookies)
 
-    # Добавляем кабинет в базу
-    await orm_controller.add_client(tg_id=tg_id, name=name, cookies=cookies)
+    if "error" in result:
+        await callback.message.answer(f"❌ {result['error']}", parse_mode="HTML")
+    else:
+        client_id = result["client_id"]
+        await callback.message.answer(
+            f"✅ Кабинет <b>{name}</b> успешно добавлен! 🎉\n"
+            f"🔑 <b>ID клиента:</b> {client_id}",
+            parse_mode="HTML"
+        )
 
-    # Подтверждающее сообщение пользователю
-    await callback.message.answer(f"✅ Кабинет <b>{name}</b> успешно добавлен!", parse_mode="HTML")
-
-    # Закрываем диалог
     await manager.done(show_mode=ShowMode.DELETE_AND_SEND)
 
 

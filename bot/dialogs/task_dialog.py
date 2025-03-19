@@ -90,9 +90,8 @@ async def get_supplies_list(dialog_manager: DialogManager, **kwargs):
 
 async def on_page_change(event, widget, manager: DialogManager):
     """Обработчик смены страницы в ScrollingGroup"""
-    current_page = await widget.get_page(manager)  # Получаем текущую страницу
-    manager.dialog_data["supply_pagination"] = current_page  # Сохраняем в данные диалога
-    await manager.next()  # Обновляем окно диалога
+    await manager.dialog().update()  # Обновляем окно, чтобы изменился и текст, и кнопки
+
 
 async def on_supply_selected(callback: CallbackQuery, widget, manager: DialogManager, item_id: str):
     """Обработчик выбора поставки"""

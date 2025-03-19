@@ -5,6 +5,7 @@ from aiogram_dialog import DialogManager, ShowMode
 from database.controller.ORM import ORMController
 from bot.utils.statesform import MainMenu
 
+
 orm_controller = ORMController()
 router = Router()
 
@@ -14,8 +15,22 @@ async def start_handler(message: Message, dialog_manager: DialogManager):
     user_id = message.from_user.id
     username = message.from_user.username or "unknown"
 
-    # ✅ Добавляем пользователя в базу
-    await orm_controller.add_user(user_id, username)
+    response = await orm_controller.register_user(user_id, username)
 
-    await dialog_manager.event.bot.send_message(text="Привет! Ты зарегистрирован в системе 🎉", chat_id=user_id)
-    await dialog_manager.start(state=MainMenu.MAIN_MENU, show_mode=ShowMode.DELETE_AND_SEND)
+    if response.get("message") == "Пользователь уже зарегистрирован":
+        msg_text = "Привет! Ты уже зарегистрирован в системе 🚀"
+        show_menu = True  # Показываем меню
+    elif "error" in response:
+        msg_text = f"❌ Ошибка регистрации: {response['error']}"
+        show_menu = False  # Не показываем меню
+    else:
+        msg_text = "Привет! Ты зарегистрирован в системе 🎉"
+        show_menu = True  # Показываем меню
+
+    # Отправляем сообщение пользователю
+    await message.answer(msg_text)
+
+    # Если не было ошибки, запускаем стартовое меню
+    if show_menu:
+        await dialog_manager.start(state=MainMenu.MAIN_MENU, show_mode=ShowMode.DELETE_AND_SEND)
+
