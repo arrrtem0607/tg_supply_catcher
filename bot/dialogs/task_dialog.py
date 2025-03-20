@@ -3,12 +3,11 @@ import logging
 
 from aiogram_dialog import Dialog, Window
 from aiogram_dialog.widgets.kbd import Select, Button, ScrollingGroup
-from aiogram_dialog.widgets.text import Jinja, ScrollingText, List, Format
+from aiogram_dialog.widgets.text import Jinja, List, Format
 from aiogram_dialog import DialogManager
 from aiogram.types import CallbackQuery
 from database.controller.ORM import ORMController
 from bot.utils.statesform import ManageClientStates, MainMenu, AddClientStates
-
 from bot.utils.castom_scroll import sync_scroll, ManagedScroll
 
 logger = logging.getLogger(__name__)
@@ -16,6 +15,18 @@ logger = logging.getLogger(__name__)
 orm_controller = ORMController()
 
 PAGE_SIZE = 5  # Количество поставок на одной странице
+
+# Словарь для перевода статусов на русский язык
+STATUS_TRANSLATION = {
+    "RECEIVED": "📥 Получено",
+    "CATCHING": "🎯 Ловится",
+    "CAUGHT": "✅ Поймано",
+    "ERROR": "❌ Ошибка",
+    "CANCELLED": "🚫 Отменено",
+    "PLANNED": "📌 Запланировано",
+    "IN_PROGRESS": "⏳ В процессе",
+    "COMPLETED": "✅ Завершено",
+}
 
 async def get_clients_list(dialog_manager: DialogManager, **kwargs):
     """Получение списка кабинетов пользователя"""
@@ -45,47 +56,46 @@ async def get_supplies_list(dialog_manager: DialogManager, **kwargs):
     if not client_id:
         return {"supplies": [], "supply_details": "❌ Нет данных по поставкам"}
 
-    # ✅ Загружаем ВСЕ поставки
+    # ✅ Загружаем ВСЕ поставки из БД
     if "cached_supplies" not in dialog_manager.dialog_data:
-        supplies = await orm_controller.get_supplies_by_client(tg_id, client_id)
+        db_supplies = await orm_controller.get_supplies_by_client(tg_id, client_id)
 
-        if not supplies:
+        if not db_supplies:
             return {
                 "supplies": [],
                 "supply_details": "📦 Нет доступных поставок"
             }
 
         # ✅ Кешируем поставки
-        supplies = sorted(supplies, key=lambda x: x.get("createDate", 0), reverse=True)
-        dialog_manager.dialog_data["cached_supplies"] = supplies
+        db_supplies = sorted(db_supplies, key=lambda x: x.get("api_created_at", ""), reverse=True)
+        dialog_manager.dialog_data["cached_supplies"] = db_supplies
         dialog_manager.dialog_data["supply_pagination"] = 0  # Начальная страница
 
     # ✅ Формируем первую страницу
-    supplies = dialog_manager.dialog_data["cached_supplies"]
-    first_page_supplies = supplies
+    db_supplies = dialog_manager.dialog_data["cached_supplies"]
+    first_page_supplies = db_supplies[:1000]  # Ограничим страницу 5 элементами
 
     supply_list = []
     supply_text_list = []
 
     for supply in first_page_supplies:
-        supply_id = str(supply.get("supplyId") or supply.get("preorderId", "Не указан"))
-        warehouse_name = supply.get("warehouseName", "Не указан")
-        box_type = supply.get("boxTypeName", "Не указан")
-        status = supply.get("statusName", "Неизвестный статус")
-        reject_reason = supply.get("rejectReason", "Причина не указана")
+        supply_id = str(supply.get("id", "❌ Без ID"))
+        warehouse_name = supply.get("warehouse_name", "❌ Неизвестный склад")
+        box_type = supply.get("box_type", "❌ Неизвестный тип")
+
+        # Перевод статуса на русский
+        status = supply.get("status", "❌ Неизвестный статус")
+        status_rus = STATUS_TRANSLATION.get(status, status)
 
         supply_list.append(supply_id)
-        supply_text_list.append(f"🔹 <b>Поставка {supply_id}</b>\n"
+        supply_text_list.append(
+            f"🔹 <b>Поставка {supply_id}</b>\n"
             f"🏬 Склад: {warehouse_name}\n"
             f"📦 Тип: {box_type}\n"
-            f"📌 Статус: {status}\n"
-            f"❌ Причина отклонения: {reject_reason}\n\n")
+            f"📌 Статус: {status_rus}\n"
+        )
 
     # ✅ Гарантируем, что текст не пустой
-    print({
-        "supplies": supply_list,
-        "supply_details": supply_text_list
-    })
     return {
         "supplies": supply_list,
         "supply_details": supply_text_list
@@ -140,6 +150,12 @@ async def on_add_client(callback: CallbackQuery, widget, manager: DialogManager)
     """Обработчик кнопки добавления кабинета"""
     await manager.start(AddClientStates.ENTER_NAME)
 
+async def on_back_pressed(manager: DialogManager):
+    """Удаляет только кешированные поставки и возвращает в главное меню"""
+    manager.dialog_data.pop("cached_supplies", None)  # Удаляем только кэш поставок, если он есть
+    manager.dialog_data.pop("supply_pagination", None)  # Также сбрасываем номер страницы
+    await manager.switch_to(ManageClientStates.CHOOSE_ACTION)  # Возвращаем в главное меню
+
 
 task_dialog = Dialog(
     Window(
@@ -184,7 +200,7 @@ task_dialog = Dialog(
     ),
     Window(
         List(
-            Format("{pos}: {item}"),
+            Format("{item}"),
             items='supply_details',
             id="TEXT_SCROLL",
             page_size=5,
@@ -203,14 +219,13 @@ task_dialog = Dialog(
             on_page_changed=sync_scroll('TEXT_SCROLL'),  # Синхронизация страниц
         ),
 
-        # Button(
-        #     Jinja("🔙 Назад"),
-        #     id="back",
-        #     on_click=lambda c, w, m: m.switch_to(ManageClientStates.CHOOSE_ACTION),
-        # ),
+        Button(
+            Jinja("🔙 Назад"),
+            id="back",
+            on_click=lambda c, w, m: on_back_pressed(m),
+        ),
         state=ManageClientStates.CLIENT_SUPPLIES,
         getter=get_supplies_list,
-        #parse_mode="HTML",
-        preview_data=get_supplies_list
+        parse_mode="HTML",
     )
 )

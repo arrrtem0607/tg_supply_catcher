@@ -1,15 +1,41 @@
 import logging
 from sqlalchemy import inspect, text, select
+from sqlalchemy.orm import joinedload
 import aiohttp
 import uuid
+from datetime import datetime
 
 from database.entities.core import Base, Database
-from database.entities.models import User
-from database.entities.models import Client
-from datetime import datetime, timezone
-
+from database.entities.models import User, Client, Supply
+from bot.enums.status_enums import Status
 
 logger = logging.getLogger(__name__)
+
+STATUS_TRANSLATION = {
+    "RECEIVED": "📥 Получено",
+    "CATCHING": "🎯 Ловится",
+    "CAUGHT": "✅ Поймано",
+    "ERROR": "❌ Ошибка",
+    "CANCELLED": "🚫 Отменено",
+    "PLANNED": "📌 Запланировано",
+    "IN_PROGRESS": "⏳ В процессе",
+    "COMPLETED": "✅ Завершено",
+}
+
+async def fetch_supplies_from_api(base_url: str, client_uuid: uuid.UUID):
+    """Выполняет запрос к API и возвращает JSON с поставками."""
+    url = f"{base_url}/catcher/all_supplies"
+    params = {"client_id": str(client_uuid)}
+
+    async with aiohttp.ClientSession() as http_session:
+        try:
+            async with http_session.get(url, params=params) as response:
+                response_text = await response.text()
+                if response.status != 200:
+                    return None, f"Ошибка API: {response.status}, Ответ: {response_text}"
+                return await response.json(), None
+        except Exception as e:
+            return None, f"Ошибка запроса к API: {e}"
 
 def session_manager(func):
     """Декоратор для автоматического управления сессией"""
@@ -92,11 +118,10 @@ class ORMController:
             return
 
         new_client = Client(
-            client_id=str(client_uuid),  # ✅ Преобразуем UUID в строку перед сохранением
+            client_id=client_uuid,  # ✅ Преобразуем UUID в строку перед сохранением
             name=name,
             user_id=tg_id,
-            cookies=cookies,
-            created_at=datetime.now(timezone.utc).replace(tzinfo=None)
+            cookies=cookies
         )
 
         session.add(new_client)
@@ -123,22 +148,18 @@ class ORMController:
 
     @session_manager
     async def get_supplies_by_client(self, session, user_id: int, client_id: str):
-        """Получить список поставок для указанного клиента (client_id), принадлежащего user_id"""
+        """Синхронизация поставок клиента с API и обновление БД"""
 
-        logger.info(f"📌 Начало получения поставок: user_id={user_id}, client_id={client_id}")
+        logger.info(f"📌 Начало синхронизации поставок: user_id={user_id}, client_id={client_id}")
 
-        # Преобразуем client_id в UUID
         try:
             client_uuid = uuid.UUID(client_id)
         except ValueError:
             logger.error(f"❌ Некорректный client_id: {client_id}")
             return []
 
-        logger.info(f"✅ client_id после конвертации в UUID: {client_uuid}")
-
-        # Проверяем, принадлежит ли клиент пользователю
         result = await session.execute(
-            select(Client).where(Client.client_id == str(client_uuid), Client.user_id == user_id)
+            select(Client).where(Client.client_id == client_uuid, Client.user_id == user_id)
         )
         client = result.scalars().first()
 
@@ -146,31 +167,83 @@ class ORMController:
             logger.warning(f"⚠️ Пользователь {user_id} пытался получить поставки не своего клиента ({client_id})!")
             return []
 
-        # Запрос к API
-        url = f"{self.BASE_URL}/catcher/all_supplies"
-        params = {"client_id": str(client_uuid)}
+        db_supplies = await session.execute(
+            select(Supply)
+            .options(joinedload(Supply.client), joinedload(Supply.user))
+            .where(Supply.client_id == client_uuid)
+        )
+        db_supplies = {str(s.id): s for s in db_supplies.scalars().all()}
 
-        logger.info(f"📡 Отправка GET-запроса: URL={url}, Параметры={params}")
+        supplies, api_error = await fetch_supplies_from_api(self.BASE_URL, client_uuid)
 
-        async with aiohttp.ClientSession() as http_session:
-            try:
-                async with http_session.get(url, params=params) as response:
-                    response_text = await response.text()
-                    logger.info(f"🔍 Ответ API (status={response.status}): {response_text}")
+        if api_error:
+            logger.error(api_error)
+            return [s.to_dict() for s in db_supplies.values()]
 
-                    if response.status == 200:
-                        supplies = await response.json()
+        logger.info(f"📦 JSON ответа API: {supplies}")
 
-                        # 🔥 Логируем JSON для анализа
-                        logger.info(f"📦 JSON ответа API: {supplies}")
+        api_supply_ids = {str(s.get("supplyId") or s.get("preorderId")) for s in supplies}
+        db_supply_ids = set(db_supplies.keys())
 
-                        return supplies
-                    else:
-                        logger.error(f"❌ Ошибка запроса поставок: {response.status}, Ответ: {response_text}")
-                        return []
-            except Exception as e:
-                logger.error(f"❌ Ошибка при получении поставок: {e}", exc_info=True)
-                return []
+        for supply_id in db_supply_ids - api_supply_ids:
+            await session.delete(db_supplies[supply_id])
+            logger.info(f"🗑️ Удалена поставка: {supply_id}")
+
+        new_supplies = []
+        for supply in supplies:
+            supply_id = str(supply.get("supplyId") or supply.get("preorderId"))
+            status_name = supply.get("statusName", "запланировано").lower()
+            api_created_at = supply.get("createDate")
+
+            if api_created_at:
+                api_created_at = datetime.fromisoformat(api_created_at).replace(tzinfo=None)
+
+            # ✅ Новые данные из API
+            warehouse_name = supply.get("warehouseName", "❌ Неизвестный склад")
+            warehouse_address = supply.get("warehouseAddress", "❌ Неизвестный адрес")
+            box_type = supply.get("boxTypeName", "❌ Неизвестный тип")
+
+            if supply_id not in db_supply_ids:
+                new_supplies.append(
+                    Supply(
+                        id=int(supply_id),
+                        user_id=user_id,
+                        client_id=client_uuid,
+                        status=STATUS_TRANSLATION.get(status_name, Status.RECEIVED),
+                        api_created_at=api_created_at,
+                        warehouse_name=warehouse_name,
+                        warehouse_address=warehouse_address,
+                        box_type=box_type,
+                    )
+                )
+            else:
+                existing_supply = db_supplies[supply_id]
+                if not existing_supply.api_created_at and api_created_at:
+                    existing_supply.api_created_at = api_created_at
+                existing_supply.warehouse_name = warehouse_name
+                existing_supply.warehouse_address = warehouse_address
+                existing_supply.box_type = box_type
+
+        session.add_all(new_supplies)
+        logger.info(f"✅ Добавлено новых поставок: {len(new_supplies)}")
+
+        return [
+            {
+                "id": s.id,
+                "user_id": s.user_id,
+                "client_id": str(s.client_id),
+                "status": s.status.name if s.status else None,
+                "created_at": s.created_at.isoformat() if s.created_at else None,
+                "updated_at": s.updated_at.isoformat() if s.updated_at else None,
+                "api_created_at": s.api_created_at.isoformat() if s.api_created_at else None,
+                "warehouse_name": s.warehouse_name,
+                "warehouse_address": s.warehouse_address,
+                "box_type": s.box_type,
+                "client_name": s.client.name if s.client else None,
+                "user_name": s.user.username if s.user else None,
+            }
+            for s in list(db_supplies.values()) + new_supplies
+        ]
 
     @session_manager
     async def register_user(self, session, tg_id: int, username: str | None):
@@ -208,8 +281,7 @@ class ORMController:
         # ✅ Если регистрация в API успешна, добавляем пользователя в БД
         new_user = User(
             tg_id=tg_id,
-            username=username if username else "unknown",
-            created_at=datetime.now(timezone.utc).replace(tzinfo=None)
+            username=username if username else "unknown"
         )
         session.add(new_user)
         logger.info(f"✅ Пользователь {tg_id} ({new_user.username}) добавлен в БД")
@@ -249,4 +321,5 @@ class ORMController:
             except Exception as e:
                 logger.error(f"❌ Ошибка подключения к API: {e}", exc_info=True)
                 return {"error": "Ошибка связи с сервером. Попробуйте еще раз."}
+
 

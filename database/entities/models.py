@@ -1,10 +1,13 @@
-from sqlalchemy import BigInteger, DateTime, Boolean, String, ForeignKey, Enum, Integer
+from sqlalchemy import (
+    Integer, BigInteger, DateTime, ForeignKey, func, Enum, ARRAY, TIMESTAMP, String, Boolean
+)
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
-from datetime import datetime, timezone, UTC
 from database.entities.core import Base
 from bot.enums.status_enums import Status
+
+from datetime import datetime
 
 class User(Base):
     __tablename__ = "users"
@@ -13,57 +16,99 @@ class User(Base):
     tg_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     username: Mapped[str] = mapped_column(String(50), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None)  # ✅ Убираем `tzinfo`
+        DateTime, server_default=func.now()
     )
 
     clients = relationship("Client", back_populates="user")
     subscriptions = relationship("Subscription", back_populates="user")
     supplyes = relationship("Supply", back_populates="user")
 
+
 class Client(Base):
-    __tablename__ = 'clients'
+    __tablename__ = "clients"
     __table_args__ = {"schema": "public"}
 
-    client_id: Mapped[str] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)  # ✅ UUID
+    client_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
-    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey('public.users.tg_id'), nullable=False)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("public.users.tg_id"), nullable=False)
     cookies: Mapped[str] = mapped_column(String, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
 
     user = relationship("User", back_populates="clients")
     supplyes = relationship("Supply", back_populates="client")
 
 
 class Supply(Base):
-    __tablename__ = 'supplyes'
+    __tablename__ = "supplyes"
     __table_args__ = {"schema": "public"}
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey('public.users.tg_id'), nullable=False)
-    client_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("public.clients.client_id"), nullable=False)  # ✅ UUID вместо BIGINT
-    status: Mapped[str] = mapped_column(Enum(Status), default=Status.RECEIVED)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
-    updated_at: Mapped[datetime] = mapped_column(DateTime, onupdate=lambda: datetime.now(UTC), nullable=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("public.users.tg_id"), nullable=False)
+    client_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("public.clients.client_id"), nullable=False)
+    status: Mapped[Status] = mapped_column(Enum(Status), default=Status.RECEIVED)
+
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP, server_default=func.now(), server_onupdate=func.now(), nullable=True)
+    api_created_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+
+    start_catch_date: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    end_catch_date: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    skip_dates: Mapped[list[datetime]] = mapped_column(ARRAY(DateTime), nullable=True)
+    coefficient: Mapped[float] = mapped_column(Integer, nullable=True)
+
+    # Новые поля
+    warehouse_name: Mapped[str] = mapped_column(String(255), nullable=True)
+    warehouse_address: Mapped[str] = mapped_column(String(255), nullable=True)
+    box_type: Mapped[str] = mapped_column(String(50), nullable=True)
 
     user = relationship("User", back_populates="supplyes")
     client = relationship("Client", back_populates="supplyes")
 
+    def to_dict(self):
+        """Преобразует объект в JSON-совместимый формат"""
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "client_id": str(self.client_id),
+            "status": self.status.name if self.status else None,
+
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "api_created_at": self.api_created_at.isoformat() if self.api_created_at else None,
+
+            "start_catch_date": self.start_catch_date.isoformat() if self.start_catch_date else None,
+            "end_catch_date": self.end_catch_date.isoformat() if self.end_catch_date else None,
+
+            "skip_dates": [d.isoformat() for d in self.skip_dates] if self.skip_dates else [],
+            "coefficient": float(self.coefficient) if self.coefficient is not None else None,
+
+            "warehouse_name": self.warehouse_name,
+            "warehouse_address": self.warehouse_address,
+            "box_type": self.box_type,
+
+            "client_name": self.client.name if self.client else None,
+            "user_name": self.user.username if self.user else None
+        }
+
 class Subscription(Base):
-    __tablename__ = 'subscriptions'
+    __tablename__ = "subscriptions"
     __table_args__ = {"schema": "public"}
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey('public.users.tg_id'), nullable=False)
-    tariff_id: Mapped[int] = mapped_column(BigInteger, ForeignKey('public.tariffs.id'), nullable=False)
-    start_date: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("public.users.tg_id"), nullable=False)
+    tariff_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("public.tariffs.id"), nullable=False)
+    start_date: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     end_date: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     user = relationship("User", back_populates="subscriptions")
     tariff = relationship("Tariff")
 
+
 class Tariff(Base):
-    __tablename__ = 'tariffs'
+    __tablename__ = "tariffs"
     __table_args__ = {"schema": "public"}
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
