@@ -1,6 +1,7 @@
 import logging
 from sqlalchemy import inspect, text, select
 import aiohttp
+import uuid
 
 from database.entities.core import Base, Database
 from database.entities.models import User
@@ -70,18 +71,28 @@ class ORMController:
                 logger.info("✅ Структура БД актуальна, изменений не требуется.")
 
     @session_manager
-    async def add_client(self, session, tg_id: int, client_id: int, name: str, cookies: str):
+    async def add_client(self, session, tg_id: int, client_id: str | None, name: str, cookies: str):
         """Добавление нового кабинета в базу данных"""
 
-        result = await session.execute(select(Client).where(Client.name == name))
+        # Если client_id не передан, генерируем новый UUID
+        if client_id is None:
+            client_uuid = uuid.uuid4()
+        else:
+            try:
+                client_uuid = uuid.UUID(client_id)
+            except ValueError:
+                logger.error(f"❌ Некорректный client_id: {client_id}")
+                return
+
+        result = await session.execute(select(Client).where(Client.client_id == str(client_uuid)))
         existing_client = result.scalars().first()
 
         if existing_client:
-            logger.info(f"⚠️ Кабинет с client_id {name} уже существует!")
+            logger.info(f"⚠️ Кабинет с client_id {client_uuid} уже существует!")
             return
 
         new_client = Client(
-            client_id=client_id,  # ✅ Передаем `client_id`
+            client_id=str(client_uuid),  # ✅ Преобразуем UUID в строку перед сохранением
             name=name,
             user_id=tg_id,
             cookies=cookies,
@@ -89,7 +100,7 @@ class ORMController:
         )
 
         session.add(new_client)
-        logger.info(f"✅ Кабинет {name} (client_id: {client_id}) успешно добавлен для пользователя {tg_id}")
+        logger.info(f"✅ Кабинет {name} (client_id: {client_uuid}) успешно добавлен для пользователя {tg_id}")
 
     @session_manager
     async def get_client_by_name(self, session, tg_id: int, name: str):
@@ -111,12 +122,23 @@ class ORMController:
         return clients
 
     @session_manager
-    async def get_supplies_by_client(self, session, user_id: int, client_id: int):
+    async def get_supplies_by_client(self, session, user_id: int, client_id: str):
         """Получить список поставок для указанного клиента (client_id), принадлежащего user_id"""
+
+        logger.info(f"📌 Начало получения поставок: user_id={user_id}, client_id={client_id}")
+
+        # Преобразуем client_id в UUID
+        try:
+            client_uuid = uuid.UUID(client_id)
+        except ValueError:
+            logger.error(f"❌ Некорректный client_id: {client_id}")
+            return []
+
+        logger.info(f"✅ client_id после конвертации в UUID: {client_uuid}")
 
         # Проверяем, принадлежит ли клиент пользователю
         result = await session.execute(
-            select(Client).where(Client.client_id == client_id, Client.user_id == user_id)
+            select(Client).where(Client.client_id == str(client_uuid), Client.user_id == user_id)
         )
         client = result.scalars().first()
 
@@ -126,11 +148,16 @@ class ORMController:
 
         # Запрос к API
         url = f"{self.BASE_URL}/catcher/all_supplies"
-        params = {"client_id": client_id}
+        params = {"client_id": str(client_uuid)}
+
+        logger.info(f"📡 Отправка GET-запроса: URL={url}, Параметры={params}")
 
         async with aiohttp.ClientSession() as http_session:
             try:
                 async with http_session.get(url, params=params) as response:
+                    response_text = await response.text()
+                    logger.info(f"🔍 Ответ API (status={response.status}): {response_text}")
+
                     if response.status == 200:
                         supplies = await response.json()
 
@@ -139,7 +166,7 @@ class ORMController:
 
                         return supplies
                     else:
-                        logger.error(f"❌ Ошибка запроса поставок: {response.status}")
+                        logger.error(f"❌ Ошибка запроса поставок: {response.status}, Ответ: {response_text}")
                         return []
             except Exception as e:
                 logger.error(f"❌ Ошибка при получении поставок: {e}", exc_info=True)
