@@ -3,7 +3,7 @@ import logging
 
 from aiogram_dialog import Dialog, Window
 from aiogram_dialog.widgets.kbd import Select, Button, ScrollingGroup
-from aiogram_dialog.widgets.text import Jinja, ScrollingText
+from aiogram_dialog.widgets.text import Jinja, ScrollingText, List, Format
 from aiogram_dialog import DialogManager
 from aiogram.types import CallbackQuery
 from database.controller.ORM import ORMController
@@ -62,10 +62,10 @@ async def get_supplies_list(dialog_manager: DialogManager, **kwargs):
 
     # ✅ Формируем первую страницу
     supplies = dialog_manager.dialog_data["cached_supplies"]
-    first_page_supplies = supplies[:PAGE_SIZE]
+    first_page_supplies = supplies
 
-    supply_info_text = "📦 <b>Информация о поставках:</b>\n\n" if first_page_supplies else "📦 <b>Нет поставок для отображения.</b>"
     supply_list = []
+    supply_text_list = []
 
     for supply in first_page_supplies:
         supply_id = str(supply.get("supplyId") or supply.get("preorderId", "Не указан"))
@@ -74,23 +74,21 @@ async def get_supplies_list(dialog_manager: DialogManager, **kwargs):
         status = supply.get("statusName", "Неизвестный статус")
         reject_reason = supply.get("rejectReason", "Причина не указана")
 
-        supply_info_text += (
-            f"🔹 <b>Поставка {supply_id}</b>\n"
+        supply_list.append(supply_id)
+        supply_text_list.append(f"🔹 <b>Поставка {supply_id}</b>\n"
             f"🏬 Склад: {warehouse_name}\n"
             f"📦 Тип: {box_type}\n"
             f"📌 Статус: {status}\n"
-            f"❌ Причина отклонения: {reject_reason}\n\n"
-        )
-
-        supply_list.append((supply_id, supply_id))
+            f"❌ Причина отклонения: {reject_reason}\n\n")
 
     # ✅ Гарантируем, что текст не пустой
-    supply_info_text = supply_info_text.strip() or "📦 <b>Нет информации о поставках.</b>"
-
+    print({
+        "supplies": supply_list,
+        "supply_details": supply_text_list
+    })
     return {
         "supplies": supply_list,
-        "supply_details": supply_info_text,
-        "count": len(supplies),
+        "supply_details": supply_text_list
     }
 
 async def on_page_change(event: CallbackQuery, widget: ManagedScroll, manager: DialogManager, new_page: int):
@@ -185,31 +183,34 @@ task_dialog = Dialog(
         parse_mode="HTML",
     ),
     Window(
-        ScrollingText(
-            Jinja("{{ supply_details | safe }}"),  # Синхронизированный текст поставок
-            id="supply_pagination",
-            page_size=1000,
+        List(
+            Format("{pos}: {item}"),
+            items='supply_details',
+            id="TEXT_SCROLL",
+            page_size=5,
         ),
         ScrollingGroup(
             Select(
-                text=Jinja("📦 {{ item[0] }}"),
+                Format("{item}"),
                 id="select_supply",
-                item_id_getter=operator.itemgetter(1),
+                item_id_getter=operator.itemgetter(0),
                 items="supplies",
                 on_click=on_supply_selected,
             ),
             id="supply_pagination",
             width=1,
             height=5,
-            on_page_changed=sync_scroll(["supply_pagination"]),  # Синхронизация страниц
+            on_page_changed=sync_scroll('TEXT_SCROLL'),  # Синхронизация страниц
         ),
-        Button(
-            Jinja("🔙 Назад"),
-            id="back",
-            on_click=lambda c, w, m: m.switch_to(ManageClientStates.CHOOSE_ACTION),
-        ),
+
+        # Button(
+        #     Jinja("🔙 Назад"),
+        #     id="back",
+        #     on_click=lambda c, w, m: m.switch_to(ManageClientStates.CHOOSE_ACTION),
+        # ),
         state=ManageClientStates.CLIENT_SUPPLIES,
         getter=get_supplies_list,
-        parse_mode="HTML",
+        #parse_mode="HTML",
+        preview_data=get_supplies_list
     )
 )
