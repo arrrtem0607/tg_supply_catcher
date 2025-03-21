@@ -167,6 +167,7 @@ class ORMController:
             logger.warning(f"⚠️ Пользователь {user_id} пытался получить поставки не своего клиента ({client_id})!")
             return []
 
+        # ✅ Загружаем все поставки клиента из БД
         db_supplies = await session.execute(
             select(Supply)
             .options(joinedload(Supply.client), joinedload(Supply.user))
@@ -174,6 +175,7 @@ class ORMController:
         )
         db_supplies = {str(s.id): s for s in db_supplies.scalars().all()}
 
+        # ✅ Загружаем поставки из API
         supplies, api_error = await fetch_supplies_from_api(self.BASE_URL, client_uuid)
 
         if api_error:
@@ -182,9 +184,11 @@ class ORMController:
 
         logger.info(f"📦 JSON ответа API: {supplies}")
 
+        # ✅ Получаем ID поставок из API и БД
         api_supply_ids = {str(s.get("supplyId") or s.get("preorderId")) for s in supplies}
         db_supply_ids = set(db_supplies.keys())
 
+        # ✅ Удаляем из БД поставки, которых нет в API
         for supply_id in db_supply_ids - api_supply_ids:
             await session.delete(db_supplies[supply_id])
             logger.info(f"🗑️ Удалена поставка: {supply_id}")
@@ -192,9 +196,8 @@ class ORMController:
         new_supplies = []
         for supply in supplies:
             supply_id = str(supply.get("supplyId") or supply.get("preorderId"))
-            status_name = supply.get("statusName", "запланировано").lower()
-            api_created_at = supply.get("createDate")
 
+            api_created_at = supply.get("createDate")
             if api_created_at:
                 api_created_at = datetime.fromisoformat(api_created_at).replace(tzinfo=None)
 
@@ -204,25 +207,29 @@ class ORMController:
             box_type = supply.get("boxTypeName", "❌ Неизвестный тип")
 
             if supply_id not in db_supply_ids:
+                # ✅ Если поставка новая, ставим ей статус RECEIVED
                 new_supplies.append(
                     Supply(
                         id=int(supply_id),
                         user_id=user_id,
                         client_id=client_uuid,
-                        status=STATUS_TRANSLATION.get(status_name, Status.RECEIVED),
+                        status=Status.RECEIVED.value,  # Всегда новый статус "RECEIVED"
                         api_created_at=api_created_at,
                         warehouse_name=warehouse_name,
                         warehouse_address=warehouse_address,
                         box_type=box_type,
                     )
                 )
+                logger.info(f"➕ Добавлена новая поставка {supply_id} со статусом RECEIVED")
             else:
+                # ✅ Если поставка уже есть, просто обновляем данные (но не статус)
                 existing_supply = db_supplies[supply_id]
                 if not existing_supply.api_created_at and api_created_at:
                     existing_supply.api_created_at = api_created_at
                 existing_supply.warehouse_name = warehouse_name
                 existing_supply.warehouse_address = warehouse_address
                 existing_supply.box_type = box_type
+                logger.info(f"🔄 Обновлена информация о поставке {supply_id}, статус оставлен без изменений")
 
         session.add_all(new_supplies)
         logger.info(f"✅ Добавлено новых поставок: {len(new_supplies)}")
@@ -232,7 +239,7 @@ class ORMController:
                 "id": s.id,
                 "user_id": s.user_id,
                 "client_id": str(s.client_id),
-                "status": s.status.name if s.status else None,
+                "status": s.status,  # Берём статус из БД, не меняем его
                 "created_at": s.created_at.isoformat() if s.created_at else None,
                 "updated_at": s.updated_at.isoformat() if s.updated_at else None,
                 "api_created_at": s.api_created_at.isoformat() if s.api_created_at else None,
@@ -321,5 +328,48 @@ class ORMController:
             except Exception as e:
                 logger.error(f"❌ Ошибка подключения к API: {e}", exc_info=True)
                 return {"error": "Ошибка связи с сервером. Попробуйте еще раз."}
+
+    @session_manager
+    async def confirm_supply_catching(
+            self, session, supply_id: int, start_date: str, end_date: str, skip_dates: list, coefficient: float
+    ):
+        """Обновление информации о поставке при подтверждении отлова"""
+
+        result = await session.execute(select(Supply).where(Supply.id == int(supply_id)))
+        supply = result.scalars().first()
+
+        if not supply:
+            logger.warning(f"⚠️ Поставка с ID {supply_id} не найдена!")
+            return {"error": f"Поставка с ID {supply_id} не найдена!"}
+
+        # Преобразуем строки в datetime объекты
+        try:
+            start_dt = datetime.fromisoformat(start_date)
+            end_dt = datetime.fromisoformat(end_date)
+            skip_dt_list = [datetime.fromisoformat(d) for d in skip_dates]
+        except ValueError as e:
+            logger.error(f"❌ Ошибка при преобразовании дат: {e}")
+            return {"error": f"Ошибка при обработке дат: {e}"}
+
+        # Обновляем поля
+        supply.status = Status.CATCHING.value
+        supply.start_catch_date = start_dt
+        supply.end_catch_date = end_dt
+        supply.skip_dates = skip_dt_list
+        supply.coefficient = coefficient
+
+        logger.info(
+            f"✅ Поставка {supply_id} обновлена: статус={supply.status}, "
+            f"start_catch_date={start_dt}, end_catch_date={end_dt}, "
+            f"skip_dates={skip_dt_list}, coefficient={coefficient}"
+        )
+
+        return {"message": f"Поставка {supply_id} обновлена и отправлена на отлов"}
+
+    @session_manager
+    async def get_supply_by_id(self, session, supply_id: str):
+        """Получаем поставку по ID"""
+        result = await session.execute(select(Supply).where(Supply.id == int(supply_id)))
+        return result.scalars().first()  # Возвращаем первую найденную поставку (или None, если не найдена)
 
 

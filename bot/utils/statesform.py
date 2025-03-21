@@ -21,7 +21,12 @@ class ManageClientStates(StatesGroup):
     CLIENT_SUPPLIES = State()  # 📦 Просмотр поставок
     SUPPLY_ACTIONS = State()  # Действия с выбранной поставкой
     UPDATE_CLIENT = State()  # 🔄 Обновление данных
-
-class SupplyStates(StatesGroup):
     CHOOSE_SUPPLY = State()  # 📦 Выбор поставки
-    SUPPLY_ACTIONS = State()  # 🔄 Действия с поставкой
+    CHOOSE_SUPPLY_ACTION = State()
+    CHOOSE_COEFFICIENT = State()
+    CHOOSE_START_DATE = State()
+    CHOOSE_END_DATE = State()
+    CHOOSE_SKIP_DATES = State()
+    CONFIRM = State()
+
+
