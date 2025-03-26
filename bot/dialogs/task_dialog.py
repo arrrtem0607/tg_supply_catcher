@@ -1,15 +1,15 @@
 import operator
 import logging
-from datetime import date
-import aiohttp
 
-from aiogram_dialog import Dialog, Window, ShowMode
-from aiogram_dialog.widgets.kbd import Select, Button, ScrollingGroup, Back, Calendar
+from aiogram import types
+from aiogram_dialog import Dialog, Window, ShowMode, StartMode, DialogManager
+from aiogram_dialog.widgets.kbd import Select, Button, ScrollingGroup
 from aiogram_dialog.widgets.text import Jinja, List, Format, Const
-from aiogram_dialog import DialogManager
+from aiogram_dialog.widgets.input import TextInput
 from aiogram.types import CallbackQuery
+
 from database.controller.ORM import ORMController
-from bot.utils.statesform import ManageClientStates, MainMenu, AddClientStates
+from bot.utils.statesform import ManageClientStates, MainMenu, AddClientStates, SupplyStates
 from bot.utils.castom_scroll import sync_scroll, ManagedScroll
 from bot.enums.status_enums import Status
 
@@ -48,43 +48,26 @@ async def get_selected_client(dialog_manager: DialogManager, **kwargs):
 
 async def on_my_clients(callback: CallbackQuery, widget, manager: DialogManager):
     """Открываем список кабинетов пользователя"""
-    await manager.start(ManageClientStates.CHOOSE_CLIENT)
+    await manager.start(ManageClientStates.CHOOSE_CLIENT, show_mode=ShowMode.EDIT)
 
 async def get_supplies_list(dialog_manager: DialogManager, **kwargs):
     tg_id = dialog_manager.event.from_user.id
     client_id = dialog_manager.dialog_data.get("selected_client")
 
-    logger.info(f"Загружаем поставки для пользователя {tg_id}, client_id: {client_id}")
-
     if not client_id:
-        logger.warning("Нет выбранного client_id. Возвращаем пустые данные.")
-        return {"supplies": [], "supply_details": []}  # supply_details → список строк
+        return {"supplies": [], "supply_details": []}
 
-    # Принудительное обновление
-    force_reload = dialog_manager.dialog_data.pop("force_reload", False)
-    if force_reload or "cached_supplies" not in dialog_manager.dialog_data:
-        db_supplies = await orm_controller.get_supplies_by_client(tg_id, client_id)
+    db_supplies = await orm_controller.get_supplies_by_client(tg_id, client_id)
 
-        if not db_supplies:
-            logger.warning(f"Поставки для клиента {client_id} не найдены.")
-            return {
-                "supplies": [],
-                "supply_details": []
-            }
+    if not db_supplies:
+        return {"supplies": [], "supply_details": ["📦 Нет поставок."]}
 
-        db_supplies = sorted(db_supplies, key=lambda x: x.get("api_created_at", ""), reverse=True)
-        dialog_manager.dialog_data["cached_supplies"] = db_supplies
-        dialog_manager.dialog_data["supply_pagination"] = 0
-        logger.info(f"Кешировано {len(db_supplies)} поставок для клиента {client_id}")
-
-    # Формируем страницу из кеша
-    db_supplies = dialog_manager.dialog_data["cached_supplies"]
-    first_page_supplies = db_supplies[:1000]
+    db_supplies = sorted(db_supplies, key=lambda x: x.get("api_created_at", ""), reverse=True)
 
     supply_list = []
     supply_text_list = []
 
-    for supply in first_page_supplies:
+    for supply in db_supplies:
         supply_id = str(supply.get("id", "❌ Без ID"))
         warehouse_name = supply.get("warehouse_name", "❌ Неизвестный склад")
         box_type = supply.get("box_type", "❌ Неизвестный тип")
@@ -199,7 +182,7 @@ async def on_page_change(event: CallbackQuery, widget: ManagedScroll, manager: D
 
 async def on_add_client(callback: CallbackQuery, widget, manager: DialogManager):
     """Обработчик кнопки добавления кабинета"""
-    await manager.start(AddClientStates.ENTER_NAME)
+    await manager.start(AddClientStates.ENTER_NAME, show_mode=ShowMode.EDIT)
 
 async def on_back_pressed(manager: DialogManager):
     """Удаляет только кешированные поставки и возвращает в главное меню"""
@@ -207,66 +190,24 @@ async def on_back_pressed(manager: DialogManager):
     manager.dialog_data.pop("supply_pagination", None)  # Также сбрасываем номер страницы
     await manager.back(show_mode=ShowMode.EDIT)  # Возвращаем в главное меню
 
-async def on_back_to_previous(callback, button, manager: DialogManager):
-    print(manager.current_stack())
-    print(manager.current_context())
-    stack = await manager.current_stack().stack()  # получаем список состояний
-    if len(stack) >= 2:
-        previous_state = stack[-2].state
-        await manager.switch_to(previous_state, show_mode=ShowMode.EDIT)
-    else:
-        from bot.utils.statesform import MainMenu
-        await manager.switch_to(MainMenu.MAIN_MENU, show_mode=ShowMode.EDIT)
-
-async def get_supply_options(dialog_manager: DialogManager, **kwargs):
-    supply_id = dialog_manager.dialog_data.get("selected_supply")
-    is_catching = dialog_manager.dialog_data.get("is_catching", False)
-
-    logger.info(f"Получение опций для поставки {supply_id}. Статус is_catching: {is_catching}")
-
-    buttons = []
-    if is_catching:
-        buttons.append(("❌ Отменить отлов", "cancel"))
-        buttons.append(("✏️ Изменить параметры", "edit"))
-    else:
-        buttons.append(("📌 Взять на отлов", "catch"))
-
-    logger.info(f"Кнопки для отображения: {buttons}")
-    return {"options": buttons, "supply_id": supply_id}
-
 async def on_supply_selected(callback: CallbackQuery, widget, manager: DialogManager, item_id: str):
-    """Обработчик выбора поставки."""
-    logger.info(f"Выбор поставки: {item_id}")
+    """Обработчик выбора поставки (и перехода в supply_dialog)."""
 
-    # Сохраняем выбранный supply_id в диалоговых данных
-    manager.dialog_data["selected_supply"] = item_id
-    logger.info(f"Сохранен supply_id в dialog_data: {item_id}")
+    supply_id = item_id
+    client_id = manager.dialog_data.get("selected_client")
 
-    # Получаем статус поставки из базы данных
-    supply = await orm_controller.get_supply_by_id(item_id)
-    if supply:
-        # Обновляем состояние в диалоговых данных на основе статуса из базы данных
-        is_catching = (supply.status == Status.CATCHING)  # Используем Enum Status для проверки
-        manager.dialog_data["is_catching"] = is_catching
+    if not client_id:
+        await callback.message.answer("❌ Не выбран клиент.")
+        return
 
-        logger.info(
-            f"Статус поставки {item_id}: {Status.get_translation(supply.status)}. Состояние is_catching обновлено на {manager.dialog_data['is_catching']}")
-    else:
-        # Если поставка не найдена, оставляем значение по умолчанию
-        manager.dialog_data["is_catching"] = False
-        logger.warning(f"Поставка с ID {item_id} не найдена. Состояние is_catching установлено в False.")
+    logger.info(f"Переход к supply_dialog с поставкой {supply_id}, client_id={client_id}")
 
-    # Переключаем на следующий экран
-    logger.info(f"Переключение на экран {ManageClientStates.CHOOSE_SUPPLY_ACTION}")
-    await manager.switch_to(ManageClientStates.CHOOSE_SUPPLY_ACTION, show_mode=ShowMode.EDIT)
-
-async def on_action_selected(callback: CallbackQuery, widget, manager: DialogManager, item_id: str):
-    if item_id == "cancel":
-        await cancel_catch(manager)
-    elif item_id == "edit":
-        await manager.switch_to(ManageClientStates.CHOOSE_COEFFICIENT, show_mode=ShowMode.EDIT)
-    else:
-        await manager.switch_to(ManageClientStates.CHOOSE_COEFFICIENT, show_mode=ShowMode.EDIT)
+    await manager.start(
+        state=SupplyStates.CHOOSE_SUPPLY_ACTION,
+        data={"supply_id": supply_id, "client_id": client_id},
+        mode=StartMode.NORMAL,
+        show_mode=ShowMode.EDIT,
+    )
 
 async def get_active_tasks(dialog_manager: DialogManager, **kwargs):
     tg_id = dialog_manager.event.from_user.id
@@ -293,138 +234,21 @@ async def get_active_tasks(dialog_manager: DialogManager, **kwargs):
 
     return {"tasks": catching_tasks, "selected_client_name": client_name}
 
-async def on_coefficient_input(message, widget, manager: DialogManager, value: str):
-    try:
-        manager.dialog_data["coefficient"] = int(value)
+async def on_name_entered(message: types.Message, manager, value: str):
+    client_id = manager.dialog_data.get("selected_client")
+    new_name = value
+    result = await orm_controller.update_client_name(client_id, new_name)
 
-        # ✅ Добавляем `start_date`, если его нет
-        if "start_date" not in manager.dialog_data:
-            manager.dialog_data["start_date"] = None
+    await message.answer(result.get("message", result.get("error", "❌ Ошибка при обновлении имени")))
+    await manager.switch_to(ManageClientStates.CHOOSE_ACTION, show_mode=ShowMode.DELETE_AND_SEND)
 
-        await manager.switch_to(ManageClientStates.CHOOSE_START_DATE, show_mode=ShowMode.EDIT)
-    except ValueError:
-        await message.answer("Введите число!")
+async def on_cookies_entered(message: types.Message, manager, value: str):
+    client_id = manager.dialog_data.get("selected_client")
+    new_cookies = value
+    result = await orm_controller.update_client_cookies(client_id, new_cookies)
 
-async def on_coefficient_selected(callback: CallbackQuery, widget, manager: DialogManager, item_id: str):
-    manager.dialog_data["coefficient"] = int(item_id)
-    await manager.switch_to(ManageClientStates.CHOOSE_START_DATE, show_mode=ShowMode.EDIT)
-
-async def get_start_date(dialog_manager: DialogManager, **kwargs):
-    return {"start_date": dialog_manager.dialog_data.get("start_date", "не выбрана")}
-
-async def get_end_date(dialog_manager: DialogManager, **kwargs):
-    return {"end_date": dialog_manager.dialog_data.get("end_date", "не выбрана")}
-
-async def on_date_selected(callback: CallbackQuery, widget, manager: DialogManager, selected_date: date):
-    state = manager.current_context().state
-    selected_str = selected_date.strftime("%Y-%m-%d")
-
-    if state == ManageClientStates.CHOOSE_START_DATE:
-        manager.dialog_data["start_date"] = selected_str
-        await manager.switch_to(ManageClientStates.CHOOSE_END_DATE, show_mode=ShowMode.EDIT)
-
-    elif state == ManageClientStates.CHOOSE_END_DATE:
-        manager.dialog_data["end_date"] = selected_str
-        await manager.switch_to(ManageClientStates.CHOOSE_SKIP_DATES, show_mode=ShowMode.EDIT)
-
-    elif state == ManageClientStates.CHOOSE_SKIP_DATES:
-        skip_dates = manager.dialog_data.get("skip_dates", [])
-        if selected_str in skip_dates:
-            skip_dates.remove(selected_str)
-        else:
-            skip_dates.append(selected_str)
-        manager.dialog_data["skip_dates"] = skip_dates
-
-        # Обновим окно, чтобы текст `{skip_dates}` отобразился актуальным
-        await manager.show()
-
-async def get_skip_dates(dialog_manager: DialogManager, **kwargs):
-    """Возвращает текущие даты пропуска, если их нет - создает пустой список"""
-    return {"skip_dates": dialog_manager.dialog_data.get("skip_dates", [])}
-
-async def on_confirm(callback: CallbackQuery, button, manager: DialogManager):
-    """Обработчик подтверждения отлова"""
-    supply_id = int(manager.dialog_data["selected_supply"])
-    start_date = manager.dialog_data["start_date"]
-    end_date = manager.dialog_data["end_date"]
-    skip_dates = manager.dialog_data.get("skip_dates", [])
-    coefficient = manager.dialog_data["coefficient"]
-    manager.dialog_data["force_reload"] = True
-
-    result = await orm_controller.confirm_supply_catching(
-        supply_id=supply_id,
-        start_date=start_date,
-        end_date=end_date,
-        skip_dates=skip_dates,
-        coefficient=coefficient
-    )
-
-    if "error" in result:
-        await callback.message.answer(f"❌ {result['error']}")
-    else:
-        await callback.message.answer(f"✅ {result['message']}")
-
-    # Очистка временных данных
-    for key in ("selected_supply", "start_date", "end_date", "skip_dates", "coefficient", "is_catching"):
-        manager.dialog_data.pop(key, None)
-
-    # Возврат в список поставок
-    await manager.switch_to(ManageClientStates.CLIENT_SUPPLIES, show_mode=ShowMode.DELETE_AND_SEND)
-
-async def get_confirm_data(dialog_manager: DialogManager, **kwargs):
-    return {
-        "supply_id": dialog_manager.dialog_data.get("selected_supply", "❌"),
-        "start_date": dialog_manager.dialog_data.get("start_date", "❌"),
-        "end_date": dialog_manager.dialog_data.get("end_date", "❌"),
-        "coefficient": dialog_manager.dialog_data.get("coefficient", "❌"),
-        "skip_dates": ", ".join(dialog_manager.dialog_data.get("skip_dates", [])) or "—"
-    }
-
-async def cancel_supply_task(manager: DialogManager):
-    """Отправляет запрос на отмену поставки через API"""
-    supply_id = int(manager.dialog_data["selected_supply"])
-    client_id = manager.dialog_data["selected_client"]  # UUID как строка
-
-    data = {
-        "client_id": client_id,
-        "preorder_id": supply_id,
-    }
-
-    logger.info(f"⛔ Отмена поставки {supply_id} для клиента {client_id}")
-
-    async with aiohttp.ClientSession() as session:
-        async with session.post("http://127.0.0.1:8001/catcher/cancel_task", json=data) as resp:
-            response_text = await resp.text()
-            if resp.status == 200:
-                await manager.event.message.answer(f"🗑 Поставка {supply_id} отменена.")
-            else:
-                await manager.event.message.answer(f"❌ Ошибка при отмене поставки: {response_text}")
-
-    # Очистка кеша поставок и возврат
-    manager.dialog_data.pop("cached_supplies", None)
-    manager.dialog_data.pop("supply_pagination", None)
-    await manager.switch_to(ManageClientStates.CLIENT_SUPPLIES, show_mode=ShowMode.EDIT)
-
-async def cancel_catch(manager: DialogManager):
-    """Обработчик отмены отлова"""
-    supply_id = int(manager.dialog_data["selected_supply"])
-    client_id = manager.dialog_data["selected_client"]
-    manager.dialog_data["force_reload"] = True
-
-    result = await orm_controller.cancel_catching(client_id=client_id, supply_id=supply_id)
-
-    if "error" in result:
-        await manager.event.message.answer(f"❌ {result['error']}")
-    else:
-        await manager.event.message.answer(f"✅ {result['message']}")
-
-    # Очистка временных данных
-    for key in ("selected_supply", "start_date", "end_date", "skip_dates", "coefficient", "is_catching"):
-        manager.dialog_data.pop(key, None)
-
-    # Возврат в список поставок
-    await manager.switch_to(ManageClientStates.CLIENT_SUPPLIES, show_mode=ShowMode.DELETE_AND_SEND)
-
+    await message.answer(result.get("message", result.get("error", "❌ Ошибка при обновлении cookies")))
+    await manager.switch_to(ManageClientStates.CHOOSE_ACTION, show_mode=ShowMode.DELETE_AND_SEND)
 
 task_dialog = Dialog(
     Window(
@@ -446,7 +270,7 @@ task_dialog = Dialog(
             on_click=on_add_client,
             when=lambda data, w, m: data.get("no_clients", False)  # Показываем кнопку, если нет кабинетов
         ),
-        Button(Jinja("🔙 Назад"), id="back", on_click=lambda c, w, m: m.start(MainMenu.MAIN_MENU, show_mode=ShowMode.EDIT)),
+        Button(Jinja("🔙 Назад"), id="back", on_click=lambda c, w, m: m.start(state=MainMenu.MAIN_MENU, show_mode=ShowMode.EDIT)),
         state=ManageClientStates.CHOOSE_CLIENT,
         getter=get_clients_list,
         parse_mode="HTML",
@@ -501,81 +325,6 @@ task_dialog = Dialog(
         parse_mode="HTML",
     ),
     Window(
-        Format("Выберите действие для поставки {supply_id}:"),
-        Select(
-            text=Format("{item[0]}"),
-            items="options",
-            id="supply_action",
-            item_id_getter=lambda x: x[1],
-            on_click=on_action_selected,
-        ),
-        Button(
-            Jinja("🔙 Назад"),
-            id="back",
-            on_click=on_back_to_previous,
-        ),
-        state=ManageClientStates.CHOOSE_SUPPLY_ACTION,
-        getter=get_supply_options,
-    ),
-    Window(
-        Const("Выберите максимальный коэффициент для отлова.\n\n"
-              "Бот будет ловить все коэффициенты включительно ниже выбранного:"),
-        # 🔘 Кнопки выбора коэффициента (0-20)
-        ScrollingGroup(
-            Select(
-                text=Format("{item}"),
-                id="select_coefficient",
-                item_id_getter=lambda x: str(x),
-                items=list(range(0, 21)),
-                on_click=on_coefficient_selected,
-            ),
-            id="coefficient_scroll",
-            width=5,  # ✅ 5 кнопок в ряд
-            height=4,  # ✅ 4 строки (всего 20 кнопок)
-        ),
-
-        Back(Const("🔙 Назад")),
-        state=ManageClientStates.CHOOSE_COEFFICIENT,
-    ),
-    Window(
-        Format("Выберите дату начала: Текущая: {start_date}"),
-        Calendar(id="start_date", on_click=on_date_selected),
-        Back(Const("🔙 Назад")),
-        state=ManageClientStates.CHOOSE_START_DATE,
-        getter=get_start_date,  # ✅ Используем исправленный getter
-    ),
-    Window(
-        Format("Выберите дату окончания: Текущая: {end_date}"),
-        Calendar(id="end_date", on_click=on_date_selected),
-        Back(Const("🔙 Назад")),
-        state=ManageClientStates.CHOOSE_END_DATE,
-        getter=get_end_date,  # ✅ Используем исправленный getter
-    ),
-    Window(
-        Format("Выберите даты, которые необходимо пропустить: Текущие: {skip_dates}"),
-        Calendar(id="skip_dates", on_click=on_date_selected),
-        Button(Const("⏭ Подтвердить"), id="skip", on_click=lambda c, b, d: d.switch_to(ManageClientStates.CONFIRM, show_mode=ShowMode.EDIT)),
-        Back(Const("🔙 Назад")),
-        state=ManageClientStates.CHOOSE_SKIP_DATES,
-        getter=get_skip_dates,  # ✅ Теперь всегда передаем skip_dates, даже если список пуст
-    ),
-    Window(
-        Jinja(
-            "<b>📋 Подтвердите данные:</b>\n\n"
-            "🆔 Поставка: <code>{{ supply_id }}</code>\n"
-            "⚙️ Коэффициент: <b>{{ coefficient }}</b>\n"
-            "📅 Дата начала: <b>{{ start_date }}</b>\n"
-            "📅 Дата окончания: <b>{{ end_date }}</b>\n"
-            "⛔ Пропущенные даты: <b>{{ skip_dates }}</b>\n\n"
-            "❓ Всё верно?"
-        ),
-        Button(Const("✅ Подтвердить"), id="confirm", on_click=on_confirm),
-        Back(Const("🔙 Назад")),
-        state=ManageClientStates.CONFIRM,
-        getter=get_confirm_data,
-        parse_mode="HTML",
-    ),
-    Window(
         List(
             Format("{item}"),
             items="supply_details",  # 👈 список строк с инфой по каждой активной поставке
@@ -598,10 +347,45 @@ task_dialog = Dialog(
         Button(
             Const("🔙 Назад"),
             id="back",
-            on_click=lambda c, w, m: m.back(show_mode=ShowMode.EDIT),
+            on_click=lambda c, w, m: m.switch_to(state=ManageClientStates.CHOOSE_ACTION,show_mode=ShowMode.EDIT),
         ),
         state=ManageClientStates.ACTIVE_TASKS,
         getter=get_active_catching_tasks,  # 👈 твоя функция, которая вернет нужный формат данных
         parse_mode="HTML",
     ),
+    Window(
+        Jinja("🛠 Что вы хотите обновить для кабинета {{ selected_client_name }}?"),
+
+        Button(Const("✏️ Изменить имя"), id="edit_name", on_click=lambda c, w, m: m.switch_to
+        (state=ManageClientStates.ENTER_NEW_NAME, show_mode=ShowMode.EDIT)),
+
+        Button(Const("🔐 Обновить cookies"), id="edit_cookies", on_click=lambda c, w, m: m.switch_to
+        (state=ManageClientStates.ENTER_NEW_COOKIES, show_mode=ShowMode.EDIT)),
+
+        Button(Const("🔙 Назад"), id="back_from_update", on_click=lambda c, w, m: m.switch_to
+        (state=ManageClientStates.CHOOSE_ACTION, show_mode=ShowMode.EDIT)),
+
+        state=ManageClientStates.UPDATE_CLIENT,
+        getter=get_selected_client,
+    ),
+    Window(
+        Const("✏️ Введите новое имя клиента:"),
+        TextInput(
+            id="new_name_input",
+            on_success=lambda m, w, manager, value: on_name_entered(m, manager, value)
+        ),
+        Button(Const("🔙 Назад"), id="back", on_click=lambda c, w, m: m.switch_to
+        (state=ManageClientStates.CHOOSE_ACTION, show_mode=ShowMode.EDIT)),
+        state=ManageClientStates.ENTER_NEW_NAME,
+    ),
+    Window(
+        Const("🔐 Вставьте новые cookies для клиента:"),
+        TextInput(
+            id="new_cookies_input",
+            on_success=lambda m, w, manager, value: on_cookies_entered(m, manager, value)
+        ),
+        Button(Const("🔙 Назад"), id="back", on_click=lambda c, w, m: m.switch_to
+        (state=ManageClientStates.CHOOSE_ACTION, show_mode=ShowMode.EDIT)),
+        state=ManageClientStates.ENTER_NEW_COOKIES,
+    )
 )
