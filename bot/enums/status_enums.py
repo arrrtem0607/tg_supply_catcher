@@ -16,7 +16,7 @@ class Status(str, Enum):
     def get_translation(self) -> str:
         """Переводит статус на русский язык."""
         translations = {
-            Status.RECEIVED: "📥 Получено",
+            Status.RECEIVED: "🚫 Не взято на отлов",
             Status.CATCHING: "🎯 Ловится",
             Status.CAUGHT: "✅ Поймано",
             Status.ERROR: "❌ Ошибка",

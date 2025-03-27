@@ -8,6 +8,7 @@ from bot.dialogs.main_menu_dialog import main_menu_dialog# Импортируе�
 from bot.dialogs.info_dialog import info_dialog
 from bot.dialogs.price_dialog import price_dialog
 from bot.dialogs.add_client_dialog import add_client_dialog
+from bot.dialogs.supply_dialog import supply_dialog
 from bot.dialogs.task_dialog import task_dialog
 from database.entities.core import Database
 from configurations import get_config
@@ -34,6 +35,7 @@ async def get_all_routers():
     router.include_router(info_dialog)
     router.include_router(add_client_dialog)
     router.include_router(task_dialog)
+    router.include_router(supply_dialog)
 
     setup_dialogs(router)
 

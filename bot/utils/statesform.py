@@ -17,16 +17,22 @@ class AddClientStates(StatesGroup):
 
 class ManageClientStates(StatesGroup):
     CHOOSE_CLIENT = State()  # Выбор кабинета
-    CHOOSE_ACTION = State()  # Выбор действия с кабинетом
     CLIENT_SUPPLIES = State()  # 📦 Просмотр поставок
+    CHOOSE_ACTION = State()
     SUPPLY_ACTIONS = State()  # Действия с выбранной поставкой
     UPDATE_CLIENT = State()  # 🔄 Обновление данных
     CHOOSE_SUPPLY = State()  # 📦 Выбор поставки
+    ACTIVE_TASKS = State()
+    ENTER_NEW_NAME = State()
+    ENTER_NEW_COOKIES = State()
+
+class SupplyStates(StatesGroup):
     CHOOSE_SUPPLY_ACTION = State()
     CHOOSE_COEFFICIENT = State()
     CHOOSE_START_DATE = State()
     CHOOSE_END_DATE = State()
     CHOOSE_SKIP_DATES = State()
     CONFIRM = State()
+
 
 
