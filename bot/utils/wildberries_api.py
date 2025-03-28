@@ -5,9 +5,10 @@ import asyncio
 import subprocess
 import json
 import requests
-from datetime import datetime, timedelta
+import re
 from aiohttp import ClientResponseError, ClientSession
 
+from datetime import datetime, timedelta
 from configurations.reading_env import Env
 
 logger = logging.getLogger(__name__)
@@ -158,16 +159,58 @@ class WildberriesAPI:
             self.sticker = data.get("payload", {}).get("sticker")
         return response.ok
 
-    def authorize(self, code: str):
+    def authorize(self, code: str) -> dict:
+        """
+        Выполняет авторизацию по коду и возвращает access_token и токены из Set-Cookie.
+
+        Args:
+            code (str): Код из SMS.
+
+        Returns:
+            dict: {
+                "access_token": str,
+                "wbx_refresh": str,
+                "wbx_validation_key": str
+            }
+
+        Raises:
+            Exception: Если авторизация не удалась или токены не найдены.
+        """
         auth_url = "https://seller-auth.wildberries.ru/auth/v2/auth"
         payload = {
             "sticker": self.sticker,
             "code": int(code)
         }
-        response = self.session.post(auth_url, json=payload)
-        print("✅ Авторизация:", response.status_code)
-        print("Ответ:", response.json())
-        print("Set-Cookie:", response.headers.get("set-cookie"))
+
+        try:
+            response = self.session.post(auth_url, json=payload)
+            response.raise_for_status()
+
+            data = response.json()
+            access_token = data.get("payload", {}).get("access_token")
+
+            if not access_token:
+                raise Exception("Access token не найден в ответе.")
+
+            # Парсинг Set-Cookie
+            set_cookie = response.headers.get("set-cookie", "")
+            wbx_refresh = re.search(r"wbx-refresh=([^;]+)", set_cookie)
+            wbx_validation = re.search(r"wbx-validation-key=([^;]+)", set_cookie)
+
+            if not (wbx_refresh and wbx_validation):
+                raise Exception("Не удалось найти wbx-refresh или wbx-validation-key в Set-Cookie.")
+
+            logger.info("✅ Авторизация успешна. Все токены получены.")
+
+            return {
+                "access_token": access_token,
+                "wbx_refresh": wbx_refresh.group(1),
+                "wbx_validation_key": wbx_validation.group(1)
+            }
+
+        except Exception as e:
+            logger.error(f"❌ Ошибка при авторизации: {e}")
+            raise
 
     async def validate_token(self, token: str, cookie_string: str, session: ClientSession):
         url = "https://seller.wildberries.ru/ns/passport-portal/suppliers-portal-ru/validate"
@@ -516,3 +559,34 @@ class WildberriesAPI:
         except Exception as e:
             logger.error(f"Ошибка при удалении поставки {preorder_id}: {e}")
             raise
+
+    async def get_suppliers(self, cookie_string: str, session: ClientSession):
+        """
+        Получает список поставщиков аккаунта.
+
+        Args:
+            cookie_string (str): Строка с куками.
+            session (ClientSession): Асинхронная сессия для HTTP-запроса.
+
+        Returns:
+            dict: JSON с информацией о поставщиках.
+        """
+        url = "https://seller.wildberries.ru/ns/suppliers/suppliers-portal-core/suppliers"
+        headers = self._initialize_headers(cookie_string)
+        payload = [
+            {
+                "method": "getUserSuppliers",
+                "params": {},
+                "id": self.get_unique_id(),
+                "jsonrpc": "2.0"
+            }
+        ]
+
+        try:
+            async with session.post(url, headers=headers, cookies=self.parse_cookies(cookie_string), json=payload) as response:
+                response.raise_for_status()
+                return await response.json()
+        except Exception as e:
+            logger.error(f"Ошибка при получении списка поставщиков: {e}")
+            raise
+

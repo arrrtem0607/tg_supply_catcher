@@ -23,7 +23,7 @@ async def on_my_clients(callback: CallbackQuery, widget, manager: DialogManager)
 
 async def on_add_client(callback: CallbackQuery, widget, manager: DialogManager):
     """Обработчик нажатия на кнопку '➕ Добавить кабинет'"""
-    await manager.start(state=AddClientStates.ENTER_NAME, show_mode=ShowMode.EDIT)  # ✅ Переход в состояние добавления кабинета
+    await manager.start(state=AddClientStates.ENTRY_METHOD, show_mode=ShowMode.EDIT)  # ✅ Переход в состояние добавления кабинета
 
 
 async def on_price(callback: CallbackQuery, widget, manager: DialogManager):
