@@ -14,10 +14,8 @@ class AddClientStates(StatesGroup):
     ENTRY_METHOD = State()
     ENTER_NAME = State()  # Ввод имени кабинета
     ENTER_PHONE = State()
-    ENTER_COOKIES = State()  # Ввод Cookies
-    CONFIRMATION = State()  # Подтверждение добавления
     ENTER_SMS_CODE = State()
-
+    SELECT_CLIENTS = State()
 
 class ManageClientStates(StatesGroup):
     CHOOSE_CLIENT = State()  # Выбор кабинета

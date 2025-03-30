@@ -5,7 +5,6 @@ import asyncio
 import subprocess
 import json
 import requests
-import re
 from aiohttp import ClientResponseError, ClientSession
 
 from datetime import datetime, timedelta
@@ -152,65 +151,88 @@ class WildberriesAPI:
             "captcha_token": captcha_token
         }
         response = self.session.post(code_url, json=payload)
-        print("🔐 Запрос кода:", response.status_code, response.text)
+        logger.info("🔐 Запрос кода: %s %s", response.status_code, response.text)
 
-        if response.ok:
-            data = response.json()
-            self.sticker = data.get("payload", {}).get("sticker")
-        return response.ok
+        if not response.ok:
+            return False, "❌ Ошибка запроса кода."
 
-    def authorize(self, code: str) -> dict:
-        """
-        Выполняет авторизацию по коду и возвращает access_token и токены из Set-Cookie.
+        data = response.json()
 
-        Args:
-            code (str): Код из SMS.
+        if data.get("result") == 4 and data.get("error") == "waiting resend":
+            ttl_seconds = data.get("payload", {}).get("ttl", 0)
+            minutes, seconds = divmod(ttl_seconds, 60)
+            hours, minutes = divmod(minutes, 60)
+            wait_time = f"{hours} ч {minutes} мин" if hours else f"{minutes} мин"
+            logger.warning(f"⏳ Превышено количество попыток. Ждите {wait_time}.")
+            return False, f"⏳ Вы уже запрашивали код. Попробуйте снова через {wait_time}."
 
-        Returns:
-            dict: {
-                "access_token": str,
-                "wbx_refresh": str,
-                "wbx_validation_key": str
-            }
+        # Успешный случай
+        self.sticker = data.get("payload", {}).get("sticker")
+        return True, None
 
-        Raises:
-            Exception: Если авторизация не удалась или токены не найдены.
-        """
+    import json
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    def authorize(self, code: str):
         auth_url = "https://seller-auth.wildberries.ru/auth/v2/auth"
         payload = {
             "sticker": self.sticker,
             "code": int(code)
         }
 
+        logger.info(f"📡 Авторизация. Код: {code}")
+        logger.info(f"📤 Запрос на {auth_url}")
+        logger.info(f"📤 Payload: {payload}")
+
         try:
             response = self.session.post(auth_url, json=payload)
-            response.raise_for_status()
-
-            data = response.json()
-            access_token = data.get("payload", {}).get("access_token")
-
-            if not access_token:
-                raise Exception("Access token не найден в ответе.")
-
-            # Парсинг Set-Cookie
-            set_cookie = response.headers.get("set-cookie", "")
-            wbx_refresh = re.search(r"wbx-refresh=([^;]+)", set_cookie)
-            wbx_validation = re.search(r"wbx-validation-key=([^;]+)", set_cookie)
-
-            if not (wbx_refresh and wbx_validation):
-                raise Exception("Не удалось найти wbx-refresh или wbx-validation-key в Set-Cookie.")
-
-            logger.info("✅ Авторизация успешна. Все токены получены.")
-
-            return {
-                "access_token": access_token,
-                "wbx_refresh": wbx_refresh.group(1),
-                "wbx_validation_key": wbx_validation.group(1)
-            }
-
         except Exception as e:
-            logger.error(f"❌ Ошибка при авторизации: {e}")
-            raise
+            logger.exception("❌ Ошибка при выполнении запроса авторизации")
+            raise Exception("Ошибка подключения к серверу Wildberries") from e
+
+        logger.info(f"📨 Статус ответа: {response.status_code}")
+        logger.debug(f"📨 Заголовки ответа: {response.headers}")
+        logger.debug(f"📨 Тело ответа (raw): {response.text}")
+        logger.debug(f"📥 Cookies после запроса: {self.session.cookies.get_dict()}")
+
+        if not response.ok:
+            raise Exception(f"Ошибка запроса авторизации. Статус: {response.status_code}")
+
+        try:
+            data = response.json()
+        except Exception as e:
+            logger.exception("❌ Ошибка при разборе JSON-ответа")
+            raise Exception("Невалидный JSON от Wildberries") from e
+
+        logger.info(f"📦 Тип данных ответа: {type(data)}")
+        logger.info(f"📦 Ответ JSON: {json.dumps(data, indent=2, ensure_ascii=False)}")
+
+        # Логирование Set-Cookie
+        set_cookie_header = response.headers.get("set-cookie")
+        logger.info(f"🍪 Set-Cookie: {set_cookie_header}")
+
+        # Достаём wbx-validation-key
+        validation_key = None
+        if set_cookie_header:
+            try:
+                cookies_parts = set_cookie_header.split(",")
+                for part in cookies_parts:
+                    if "wbx-validation-key=" in part:
+                        validation_key = part.strip().split(";", 1)[0]
+                        logger.info(f"🔑 Найден wbx-validation-key: {validation_key}")
+                        break
+                else:
+                    logger.warning("⚠️ wbx-validation-key не найден в заголовках Set-Cookie.")
+            except Exception as e:
+                logger.exception("❌ Ошибка при разборе Set-Cookie")
+
+        return {
+            "json": data,
+            "cookies": self.session.cookies.get_dict(),
+            "wbx_validation_key": validation_key,
+        }
 
     async def validate_token(self, token: str, cookie_string: str, session: ClientSession):
         url = "https://seller.wildberries.ru/ns/passport-portal/suppliers-portal-ru/validate"

@@ -1,9 +1,9 @@
-import json
 import logging
+import operator
 
 from aiogram_dialog import Dialog, Window, ShowMode
-from aiogram_dialog.widgets.kbd import Button, Row, Column
-from aiogram_dialog.widgets.text import Jinja, Const
+from aiogram_dialog.widgets.kbd import Button, Row, Column, Multiselect
+from aiogram_dialog.widgets.text import Jinja, Const, Format
 from aiogram_dialog.widgets.input import TextInput, ManagedTextInput
 from aiogram_dialog import DialogManager
 from aiogram.types import Message, CallbackQuery
@@ -11,93 +11,10 @@ from aiogram.types import Message, CallbackQuery
 from bot.utils.statesform import AddClientStates, MainMenu
 from database.controller.ORM import ORMController
 from bot.utils.wildberries_api import WildberriesAPI
+from bot.utils.validations import normalize_phone_number
 
 orm_controller = ORMController()
-wb_api = WildberriesAPI()
 logger = logging.getLogger(__name__)
-
-async def on_choose_cookies(c, w, m):
-    await m.switch_to(AddClientStates.ENTER_NAME, show_mode=ShowMode.EDIT)
-
-async def on_choose_phone(c, w, m):
-    await m.switch_to(AddClientStates.ENTER_PHONE, show_mode=ShowMode.EDIT)
-
-async def get_client_data(dialog_manager: DialogManager, **kwargs):
-    """Передача имени кабинета и Cookies в шаблон"""
-    return {
-        "client_name": dialog_manager.find("client_name").get_value() or "Без имени",
-        "cookies": dialog_manager.find("cookies").get_value() or "Нет данных"
-    }
-
-async def go_to_next_step(message: Message, widget, manager: DialogManager, value: str):
-    """Функция для перехода к следующему шагу"""
-    await manager.next(show_mode=ShowMode.DELETE_AND_SEND)
-
-async def confirm_client_data(callback: CallbackQuery, widget, manager: DialogManager):
-    """Подтверждение добавления кабинета, регистрация через API и сохранение в БД."""
-
-    tg_id = callback.from_user.id
-    name = manager.find("client_name").get_value() or "Без имени"
-    cookies = manager.find("cookies").get_value() or "{}"
-
-    # ✅ Вызываем ORM-контроллер для регистрации клиента
-    result = await orm_controller.register_client(tg_id, name, cookies)
-
-    if "error" in result:
-        await callback.message.answer(f"❌ {result['error']}", parse_mode="HTML")
-    else:
-        client_id = result["client_id"]
-        await callback.message.answer(
-            f"✅ Кабинет <b>{name}</b> успешно добавлен! 🎉\n"
-            f"🔑 <b>ID клиента:</b> {client_id}",
-            parse_mode="HTML"
-        )
-
-    await manager.done(show_mode=ShowMode.DELETE_AND_SEND)
-
-async def on_sms_code_entered(message: Message, widget, manager: DialogManager, value: str):
-    """Обработка ввода SMS-кода, авторизация в Wildberries и регистрация клиента"""
-    sms_code = value.strip()
-    phone = manager.dialog_data.get("phone_number")
-
-    # ⛔ Проверяем, что объект API был сохранён
-    api: WildberriesAPI = manager.dialog_data.get("api")
-    if not api:
-        await message.answer("⚠️ Ошибка: сессия авторизации не найдена.")
-        await manager.done(show_mode=ShowMode.DELETE_AND_SEND)
-        return
-
-    try:
-        # 🔐 Пытаемся авторизоваться
-        api.authorize(sms_code)
-
-        # 💾 Получаем cookies из сессии
-        cookies_dict = api.session.cookies.get_dict()
-        cookies_json = json.dumps(cookies_dict)
-
-        # 📛 Генерируем имя по номеру
-        name = f"Клиент {phone[-4:]}" if phone else "Новый клиент"
-        tg_id = message.from_user.id
-
-        # ✅ Регистрируем клиента через ORM
-        result = await orm_controller.register_client(tg_id, name, cookies_json)
-
-        if "error" in result:
-            await message.answer(f"❌ {result['error']}")
-        else:
-            await message.answer(
-                f"✅ Клиент по номеру <b>{phone}</b> успешно добавлен!\n"
-                f"🔑 ID: <code>{result['client_id']}</code>",
-                parse_mode="HTML"
-            )
-
-    except Exception as e:
-        await message.answer(f"❌ Ошибка авторизации: {str(e)}")
-
-    await manager.done(show_mode=ShowMode.DELETE_AND_SEND)
-
-async def get_phone_number(d, **kwargs):
-    return {"phone_number": d.dialog_data.get("phone_number", "неизвестен")}
 
 #____________________________
 async def on_phone_entered(
@@ -106,27 +23,24 @@ async def on_phone_entered(
     dialog_manager: DialogManager,
     phone: str,
 ):
+    phone = normalize_phone_number(phone)
     logger.info(f"📞 Введён номер телефона: {phone}")
     dialog_manager.dialog_data["phone_number"] = phone
-
-    # Создаем экземпляр API и сохраняем в dialog_data
-    api = WildberriesAPI(phone_number=phone)
-    dialog_manager.dialog_data["api"] = api
-
     logger.info("📡 Отправка запроса на получение SMS-кода...")
 
     try:
-        success = api.send_code()
+        api = WildberriesAPI(phone_number=phone)
+        success, error_msg = api.send_code()
         if success:
-            logger.info("✅ SMS-код успешно отправлен.")
+            dialog_manager.dialog_data["phone_number"] = phone
+            dialog_manager.dialog_data["sticker"] = api.sticker  # 🔥 сохраняем только sticker
             await dialog_manager.switch_to(AddClientStates.ENTER_SMS_CODE)
         else:
-            logger.warning("⚠️ Не удалось отправить код. Ответ не OK.")
-            await message.answer("❌ Не удалось отправить код. Попробуйте позже.")
+            logger.warning(f"⚠️ Не удалось отправить код: {error_msg}")
+            await message.answer(error_msg)
     except Exception as e:
         logger.exception("❌ Ошибка при отправке SMS-кода")
         await message.answer(f"❌ Ошибка при отправке кода: {str(e)}")
-
 
 async def on_phone_error(
     message: Message,
@@ -137,6 +51,83 @@ async def on_phone_error(
     logger.warning("🚫 Ошибка валидации номера телефона")
     await message.answer("⚠️ Введите корректный номер телефона в формате +79991234567")
 
+async def on_sms_code_entered(
+        message: Message,
+        widget: ManagedTextInput[str],
+        dialog_manager: DialogManager,
+        code: str):
+    logger.info(f"📨 Введён SMS-код: {code}")
+
+    phone = dialog_manager.dialog_data.get("phone_number")
+    sticker = dialog_manager.dialog_data.get("sticker")
+
+    if not phone or not sticker:
+        await message.answer("⚠️ Ошибка: данные утеряны. Попробуйте сначала.")
+        return
+
+    api = WildberriesAPI(phone_number=phone)
+    api.sticker = sticker
+
+    try:
+        result = api.authorize(code)
+
+        cookies_dict = result["cookies"]
+        access_token = result["json"]["payload"]["access_token"]
+        validation_key = result["wbx_validation_key"]
+
+        # Собираем куки строкой
+        cookie_string = "; ".join(f"{k}={v}" for k, v in cookies_dict.items())
+
+        # Добавим вручную wbx-validation-key, если он не попал в session.cookies
+        if validation_key and "wbx-validation-key" not in cookies_dict:
+            cookie_string += f"; {validation_key}"
+
+        # Сохраняем
+        dialog_manager.dialog_data["auth_response"] = {
+            "cookie_string": cookie_string,
+            "access_token": access_token
+        }
+
+        await dialog_manager.switch_to(AddClientStates.SELECT_CLIENTS, show_mode=ShowMode.EDIT)
+    except Exception as e:
+        logger.exception("❌ Ошибка авторизации")
+        await message.answer(f"❌ Ошибка авторизации: {str(e)}")
+
+
+async def on_sms_code_error(
+    message: Message,
+    widget: ManagedTextInput[str],
+    dialog_manager: DialogManager,
+    error: ValueError,
+):
+    logger.warning("🚫 Ошибка ввода авторизационного кода")
+    await message.answer("⚠️ Ошибка кода, попробуйте еще раз")
+    await dialog_manager.switch_to(AddClientStates.ENTER_PHONE, show_mode=ShowMode.DELETE_AND_SEND)
+
+async def get_suppliers_data(dialog_manager: DialogManager, **kwargs):
+    # Предположим, что результат запроса к API уже сохранён в dialog_manager или передаётся через kwargs
+    raw_data = dialog_manager.dialog_data.get("raw_suppliers_response")
+
+    suppliers_raw = raw_data[0]["result"]["suppliers"]
+    suppliers = [(supplier["name"], supplier["id"]) for supplier in suppliers_raw]
+
+    return {
+        "suppliers": suppliers,
+        "count": len(suppliers),
+    }
+
+async def on_add_selected(callback: CallbackQuery, button: Button, manager: DialogManager):
+    selected_ids = await manager.find("m_suppliers").get_checked()
+    logger.info(f"📦 Выбранные поставщики: {selected_ids}")
+    #TODO: Зарегистрируй всех поставщиков в БД
+    await manager.done()
+
+async def on_add_all(callback: CallbackQuery, button: Button, manager: DialogManager):
+    suppliers = manager.dialog_data.get("suppliers_data", [])
+    all_ids = [str(s[1]) for s in suppliers]
+    logger.info(f"📦 Добавлены ВСЕ поставщики: {all_ids}")
+    #TODO: Зарегистрируй всех поставщиков в БД
+    await manager.done()
 
 add_client_dialog = Dialog(
     Window(
@@ -170,79 +161,40 @@ add_client_dialog = Dialog(
         state=AddClientStates.ENTER_PHONE,
         parse_mode="HTML",
     ),
-    # Шаг 2: Инструкция + Ввод Cookies
     Window(
         Jinja(
-            "🆕 <b>Добавление кабинета</b>\n\n"
-            "📌 Кабинет: <b>{{ client_name }}</b>\n\n"
-            "📜 <b>Как получить Cookies?</b>\n\n"
-            "1️⃣ Установите расширение <b>Cookie-Editor</b> для вашего браузера.\n"
-            "2️⃣ Авторизуйтесь в кабинете WB.\n"
-            "3️⃣ Откройте <b>Cookie-Editor</b>, найдите <code>WBToken</code> и <code>WBAuth</code>.\n"
-            "4️⃣ Скопируйте их и отправьте сюда в формате:\n"
-            "<code>{\"WBToken\": \"ваш_токен\", \"WBAuth\": \"ваш_токен\"}</code>\n\n"
-            "✏️ <i>Введите Cookies в ответном сообщении, чтобы продолжить.</i>"
-        ),
-        TextInput(
-            id="cookies",
-            on_success=go_to_next_step,
-        ),
-        Row(
-            Button(Jinja("🔙 Назад"), id="back", on_click=lambda c, w, m: m.switch_to(AddClientStates.ENTER_NAME, show_mode=ShowMode.EDIT)),
-        ),
-        state=AddClientStates.ENTER_COOKIES,
-        getter=get_client_data,
-        parse_mode="HTML",
-    ),
-
-    # Шаг 3: Подтверждение данных
-    Window(
-        Jinja(
-            "✅ <b>Подтверждение данных</b>\n\n"
-            "📌 <b>Кабинет:</b> {{ client_name }}\n"
-            "🔑 <b>Cookies:</b> <code>{{ cookies }}</code>\n\n"
-            "Все верно?"
-        ),
-        Row(
-            Button(Jinja("✅ Подтвердить"), id="confirm", on_click=confirm_client_data),
-            Button(Jinja("🔙 Назад"), id="back", on_click=lambda c, w, m: m.switch_to(AddClientStates.ENTER_COOKIES, show_mode=ShowMode.EDIT)),
-        ),
-        state=AddClientStates.CONFIRMATION,
-        getter=get_client_data,
-        parse_mode="HTML",
-    ),
-    Window(
-        Jinja(
-            "📱 <b>Добавление по номеру телефона</b>\n\n"
-            "📞 <b>Введите номер телефона в формате:</b>\n"
-            "<code>+79991234567</code>\n"
-            "✏️ <i>После ввода мы отправим код подтверждения.</i>"
-        ),
-        TextInput(
-            id="phone_number",
-            on_success=on_phone_entered,
-        ),
-        Row(
-            Button(Const("🔙 Назад"), id="back", on_click=lambda c, w, m: m.switch_to(AddClientStates.ENTRY_METHOD)),
-        ),
-        state=AddClientStates.ENTER_PHONE,
-        parse_mode="HTML",
-    ),
-    Window(
-        Jinja(
-            "📲 <b>Введите код из SMS</b>\n\n"
-            "💬 Мы отправили код на номер <b>{{ phone_number }}</b>\n"
-            "✏️ <i>Введите код для завершения авторизации</i>"
+            "📲 <b>Введите код из SMS от WildBerries для получения списка доступных клиентов</b>\n\n"
         ),
         TextInput(
             id="sms_code",
+            type_factory=str,
             on_success=on_sms_code_entered,
+            on_error=on_sms_code_error,
         ),
         Row(
             Button(Const("🔙 Назад"), id="back", on_click=lambda c, w, m: m.switch_to(AddClientStates.ENTER_PHONE)),
         ),
         state=AddClientStates.ENTER_SMS_CODE,
         parse_mode="HTML",
-        getter=get_phone_number,
+    ),
+    Window(
+        Const("📦 Выберите поставщиков из списка ниже или нажмите 'Добавить всех'"),
+        Multiselect(
+            checked_text=Format("✓ {item[0]}"),
+            unchecked_text=Format("{item[0]}"),
+            id="m_suppliers",
+            item_id_getter=operator.itemgetter(1),  # берем item[1] как ID
+            items="suppliers",  # это ключ из data, получаемого в get_data
+        ),
+        Row(
+            Button(Const("✅ Добавить выбранных"), id="add_selected", on_click=on_add_selected),
+            Button(Const("📋 Добавить всех"), id="add_all", on_click=on_add_all),
+        ),
+        Row(
+            Button(Const("🔙 В главное меню"), id="to_main", on_click=lambda c, w, m: m.start(MainMenu.MAIN_MENU)),
+        ),
+        state=AddClientStates.SELECT_CLIENTS,
+        getter=get_suppliers_data,
+        parse_mode="HTML",
     )
 )

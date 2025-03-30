@@ -2,7 +2,6 @@ import requests
 import subprocess
 import json
 
-
 def parse_cookies(cookie_str):
     cookies = {}
     for item in cookie_str.split(";"):
@@ -10,7 +9,6 @@ def parse_cookies(cookie_str):
             key, value = item.strip().split("=", 1)
             cookies[key] = value
     return cookies
-
 
 class WildberriesAuth:
     @staticmethod
