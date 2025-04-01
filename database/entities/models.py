@@ -1,9 +1,7 @@
 from sqlalchemy import (
-    Integer, BigInteger, DateTime, ForeignKey, func, Enum, ARRAY, TIMESTAMP, String, Boolean
+    Integer, BigInteger, DateTime, ForeignKey, func, Enum, ARRAY, TIMESTAMP, String, Boolean, PrimaryKeyConstraint, ForeignKeyConstraint
 )
 from sqlalchemy.orm import relationship, Mapped, mapped_column
-from sqlalchemy.dialects.postgresql import UUID
-import uuid
 from database.entities.core import Base
 from bot.enums.status_enums import Status
 
@@ -21,32 +19,40 @@ class User(Base):
 
     clients = relationship("Client", back_populates="user")
     subscriptions = relationship("Subscription", back_populates="user")
-    supplyes = relationship("Supply", back_populates="user")
+    supplyes = relationship("Supply", back_populates="user", overlaps="client,supplyes")
 
 
 class Client(Base):
     __tablename__ = "clients"
-    __table_args__ = {"schema": "public"}
-
-    client_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
-    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("public.users.tg_id"), nullable=False)
-    cookies: Mapped[str] = mapped_column(String, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now()
+    __table_args__ = (
+        PrimaryKeyConstraint("client_id", "user_id", name="pk_clients"),
+        {"schema": "public"},
     )
 
+    client_id: Mapped[str] = mapped_column(String(100), nullable=False)  # теперь это строка от WB
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("public.users.tg_id"), nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    cookies: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
     user = relationship("User", back_populates="clients")
-    supplyes = relationship("Supply", back_populates="client")
+    supplyes = relationship("Supply", back_populates="client", overlaps="user,supplyes")
 
 
 class Supply(Base):
     __tablename__ = "supplyes"
-    __table_args__ = {"schema": "public"}
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["client_id", "user_id"],
+            ["public.clients.client_id", "public.clients.user_id"]
+        ),
+        {"schema": "public"},
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+
+    client_id: Mapped[str] = mapped_column(String(100), nullable=False)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("public.users.tg_id"), nullable=False)
-    client_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("public.clients.client_id"), nullable=False)
     status: Mapped[Status] = mapped_column(Enum(Status), default=Status.RECEIVED)
 
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP, server_default=func.now())
@@ -63,8 +69,8 @@ class Supply(Base):
     warehouse_address: Mapped[str] = mapped_column(String(255), nullable=True)
     box_type: Mapped[str] = mapped_column(String(50), nullable=True)
 
-    user = relationship("User", back_populates="supplyes")
-    client = relationship("Client", back_populates="supplyes")
+    user = relationship("User", back_populates="supplyes", overlaps="client,supplyes")
+    client = relationship("Client", back_populates="supplyes", overlaps="user,supplyes")
 
     def to_dict(self):
         """Преобразует объект в JSON-совместимый формат"""

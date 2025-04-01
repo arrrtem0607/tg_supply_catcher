@@ -182,7 +182,7 @@ async def on_page_change(event: CallbackQuery, widget: ManagedScroll, manager: D
 
 async def on_add_client(callback: CallbackQuery, widget, manager: DialogManager):
     """Обработчик кнопки добавления кабинета"""
-    await manager.start(AddClientStates.ENTER_NAME, show_mode=ShowMode.EDIT)
+    await manager.start(AddClientStates.ENTRY_METHOD, show_mode=ShowMode.EDIT)
 
 async def on_back_pressed(manager: DialogManager):
     """Удаляет только кешированные поставки и возвращает в главное меню"""

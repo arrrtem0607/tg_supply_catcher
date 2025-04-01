@@ -1,8 +1,9 @@
 import logging
 import operator
+import aiohttp
 
 from aiogram_dialog import Dialog, Window, ShowMode
-from aiogram_dialog.widgets.kbd import Button, Row, Column, Multiselect
+from aiogram_dialog.widgets.kbd import Button, Row, Column, Multiselect, ScrollingGroup, ManagedMultiselect
 from aiogram_dialog.widgets.text import Jinja, Const, Format
 from aiogram_dialog.widgets.input import TextInput, ManagedTextInput
 from aiogram_dialog import DialogManager
@@ -34,7 +35,7 @@ async def on_phone_entered(
         if success:
             dialog_manager.dialog_data["phone_number"] = phone
             dialog_manager.dialog_data["sticker"] = api.sticker  # 🔥 сохраняем только sticker
-            await dialog_manager.switch_to(AddClientStates.ENTER_SMS_CODE)
+            await dialog_manager.switch_to(AddClientStates.ENTER_SMS_CODE, show_mode=ShowMode.DELETE_AND_SEND)
         else:
             logger.warning(f"⚠️ Не удалось отправить код: {error_msg}")
             await message.answer(error_msg)
@@ -75,24 +76,25 @@ async def on_sms_code_entered(
         access_token = result["json"]["payload"]["access_token"]
         validation_key = result["wbx_validation_key"]
 
-        # Собираем куки строкой
-        cookie_string = "; ".join(f"{k}={v}" for k, v in cookies_dict.items())
+        cookie_string = f"WBTokenV3={access_token}"
+        if validation_key:
+            cookie_string += f";wbx-validation-key={validation_key}"
+            dialog_manager.dialog_data["cookie_string"] = cookie_string
 
-        # Добавим вручную wbx-validation-key, если он не попал в session.cookies
-        if validation_key and "wbx-validation-key" not in cookies_dict:
-            cookie_string += f"; {validation_key}"
+        async with aiohttp.ClientSession() as session:
+            api = WildberriesAPI()
+            raw_suppliers = await api.get_suppliers(cookie_string, session)
 
-        # Сохраняем
-        dialog_manager.dialog_data["auth_response"] = {
-            "cookie_string": cookie_string,
-            "access_token": access_token
-        }
+            dialog_manager.dialog_data["raw_suppliers_response"] = raw_suppliers
+            dialog_manager.dialog_data["suppliers_data"] = [
+                (supplier["name"], supplier["id"])
+                for supplier in raw_suppliers[0]["result"]["suppliers"]
+            ]
 
-        await dialog_manager.switch_to(AddClientStates.SELECT_CLIENTS, show_mode=ShowMode.EDIT)
+        await dialog_manager.switch_to(AddClientStates.SELECT_CLIENTS, show_mode=ShowMode.DELETE_AND_SEND)
     except Exception as e:
         logger.exception("❌ Ошибка авторизации")
         await message.answer(f"❌ Ошибка авторизации: {str(e)}")
-
 
 async def on_sms_code_error(
     message: Message,
@@ -117,17 +119,80 @@ async def get_suppliers_data(dialog_manager: DialogManager, **kwargs):
     }
 
 async def on_add_selected(callback: CallbackQuery, button: Button, manager: DialogManager):
-    selected_ids = await manager.find("m_suppliers").get_checked()
-    logger.info(f"📦 Выбранные поставщики: {selected_ids}")
-    #TODO: Зарегистрируй всех поставщиков в БД
-    await manager.done()
+    try:
+        multiselect: ManagedMultiselect = manager.find("m_suppliers")
+        selected_ids = multiselect.get_checked()
+
+        tg_id = callback.from_user.id
+        suppliers_data = manager.dialog_data.get("suppliers_data", [])
+        if not selected_ids:
+            await callback.message.answer("⚠️ Вы не выбрали ни одного поставщика.")
+            return
+
+        cookie_string = manager.dialog_data.get("cookie_string")
+        if not cookie_string:
+            await callback.message.answer("❌ Ошибка: отсутствует cookie_string.")
+            return
+
+        await register_suppliers(selected_ids, cookie_string, tg_id, suppliers_data)
+        await callback.message.answer("✅ Выбранные поставщики зарегистрированы.")
+        await manager.start(state=MainMenu.MAIN_MENU, show_mode=ShowMode.DELETE_AND_SEND)
+
+    except Exception as e:
+        logger.exception("❌ Ошибка при добавлении выбранных поставщиков")
+        await callback.message.answer(f"❌ Ошибка: {str(e)}")
 
 async def on_add_all(callback: CallbackQuery, button: Button, manager: DialogManager):
-    suppliers = manager.dialog_data.get("suppliers_data", [])
-    all_ids = [str(s[1]) for s in suppliers]
-    logger.info(f"📦 Добавлены ВСЕ поставщики: {all_ids}")
-    #TODO: Зарегистрируй всех поставщиков в БД
-    await manager.done()
+    try:
+        suppliers = manager.dialog_data.get("suppliers_data", [])
+        if not suppliers:
+            await callback.message.answer("❌ Список поставщиков пуст.")
+            return
+
+        all_ids = [s[1] for s in suppliers]
+        cookie_string = manager.dialog_data.get("cookie_string")
+        if not cookie_string:
+            await callback.message.answer("❌ Ошибка: отсутствует cookie_string.")
+            return
+
+        tg_id = callback.from_user.id
+
+        await register_suppliers(all_ids, cookie_string, tg_id, suppliers)
+        await callback.message.answer("✅ Все поставщики зарегистрированы.")
+        await manager.start(state=MainMenu.MAIN_MENU, show_mode=ShowMode.DELETE_AND_SEND)
+
+    except Exception as e:
+        logger.exception("❌ Ошибка при добавлении всех поставщиков")
+        await callback.message.answer(f"❌ Ошибка: {str(e)}")
+
+async def register_suppliers(
+    selected_ids: list[str],
+    base_cookie: str,
+    tg_id: int,
+    suppliers_data: list[tuple[str, str]],
+):
+    for supplier_id in selected_ids:
+        name = next((n for n, sid in suppliers_data if sid == supplier_id), None)
+        if not name:
+            logger.warning(f"⚠️ Не найдено имя для поставщика {supplier_id}")
+            continue
+
+        # 👇 Дополняем куки
+        supplier_cookie = (
+            f"{base_cookie};"
+            f"x-supplier-id={supplier_id};"
+            f"x-supplier-id-external={supplier_id}"
+        )
+
+        logger.info(f"📦 Регистрируем поставщика: {supplier_id} ({name})")
+        logger.debug(f"🔐 Полный cookie_string: {supplier_cookie}")
+
+        await orm_controller.register_client(
+            tg_id=tg_id,
+            client_id=supplier_id,
+            name=name,
+            cookies=supplier_cookie,
+        )
 
 add_client_dialog = Dialog(
     Window(
@@ -139,7 +204,7 @@ add_client_dialog = Dialog(
         ),
         Column(
             Button(Const("➡️ Начать"), id="start_phone_flow",
-                   on_click=lambda c, w, m: m.switch_to(AddClientStates.ENTER_PHONE)),
+                   on_click=lambda c, w, m: m.switch_to(AddClientStates.ENTER_PHONE, show_mode=ShowMode.EDIT)),
             Button(Const("🔙 Назад"), id="back", on_click=lambda c, w, m: m.start(MainMenu.MAIN_MENU)),
         ),
         state=AddClientStates.ENTRY_METHOD,
@@ -156,7 +221,7 @@ add_client_dialog = Dialog(
             on_error=on_phone_error,
         ),
         Row(
-            Button(Const("🔙 Назад"), id="back", on_click=lambda c, w, m: m.switch_to(AddClientStates.ENTRY_METHOD)),
+            Button(Const("🔙 Назад"), id="back", on_click=lambda c, w, m: m.switch_to(AddClientStates.ENTRY_METHOD, show_mode=ShowMode.EDIT)),
         ),
         state=AddClientStates.ENTER_PHONE,
         parse_mode="HTML",
@@ -172,19 +237,24 @@ add_client_dialog = Dialog(
             on_error=on_sms_code_error,
         ),
         Row(
-            Button(Const("🔙 Назад"), id="back", on_click=lambda c, w, m: m.switch_to(AddClientStates.ENTER_PHONE)),
+            Button(Const("🔙 Назад"), id="back", on_click=lambda c, w, m: m.switch_to(AddClientStates.ENTER_PHONE, show_mode=ShowMode.EDIT)),
         ),
         state=AddClientStates.ENTER_SMS_CODE,
         parse_mode="HTML",
     ),
     Window(
         Const("📦 Выберите поставщиков из списка ниже или нажмите 'Добавить всех'"),
-        Multiselect(
-            checked_text=Format("✓ {item[0]}"),
-            unchecked_text=Format("{item[0]}"),
-            id="m_suppliers",
-            item_id_getter=operator.itemgetter(1),  # берем item[1] как ID
-            items="suppliers",  # это ключ из data, получаемого в get_data
+        ScrollingGroup(
+            Multiselect(
+                checked_text=Format("✓ {item[0]}"),
+                unchecked_text=Format("{item[0]}"),
+                id="m_suppliers",
+                item_id_getter=operator.itemgetter(1),
+                items="suppliers",
+            ),
+            id="suppliers_scroll",
+            width=1,
+            height=5,
         ),
         Row(
             Button(Const("✅ Добавить выбранных"), id="add_selected", on_click=on_add_selected),

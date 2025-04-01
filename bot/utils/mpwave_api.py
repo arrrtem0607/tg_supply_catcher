@@ -32,14 +32,17 @@ class MPWAVEAPI:
                 return None
 
     @staticmethod
-    async def register_client_api(tg_id: int, name: str, cookies: str) -> dict:
+    async def register_client_api(tg_id: int, client_id: str, name: str, cookies: str) -> dict:
         url = f"{MPWAVEAPI.BASE_URL}/catcher/register/client"
         async with aiohttp.ClientSession() as session:
             try:
                 logger.debug(f"🔄 POST {url} | data={{'tg_id': {tg_id}, 'name': '{name}'}}")
                 response = await session.post(
                     url,
-                    params={"user_id": tg_id, "name": name, "cookies": cookies},
+                    params={"user_id": tg_id,
+                            "client_id": client_id,
+                            "name": name,
+                            "cookies": cookies},
                     timeout=10,
                 )
                 response.raise_for_status()
@@ -116,9 +119,9 @@ class MPWAVEAPI:
                 return None
 
     @staticmethod
-    async def fetch_supplies_from_api(client_uuid: uuid.UUID):
+    async def fetch_supplies_from_api(client_id: str):
         url = f"{MPWAVEAPI.BASE_URL}/catcher/all_supplies"
-        params = {"client_id": str(client_uuid)}
+        params = {"client_id": client_id}
 
         async with aiohttp.ClientSession() as http_session:
             try:

@@ -1,5 +1,4 @@
 import logging
-import uuid
 from datetime import datetime
 from sqlalchemy import inspect, text, select
 from sqlalchemy.orm import joinedload
@@ -24,9 +23,9 @@ STATUS_TRANSLATION = {
     "COMPLETED": "✅ Завершено",
 }
 
-async def fetch_supplies_from_api(client_uuid: uuid.UUID):
+async def fetch_supplies_from_api(client_id: str):
     """Запрашивает поставки клиента через MPWAVEAPI."""
-    return await MPWAVEAPI.fetch_supplies_from_api(client_uuid)
+    return await MPWAVEAPI.fetch_supplies_from_api(client_id)
 
 def session_manager(func):
     """Декоратор для автоматического управления сессией"""
@@ -89,17 +88,18 @@ class ORMController:
                 logger.info("✅ Структура БД актуальна, изменений не требуется.")
 
     @session_manager
-    async def add_client(self, session, tg_id: int, client_id: str | None, name: str, cookies: str):
-        try:
-            client_uuid = uuid.UUID(client_id) if client_id else uuid.uuid4()
-        except ValueError:
-            return
+    async def add_client(self, session, tg_id: int, client_id: str, name: str, cookies: str):
+        # Проверка по составному ключу
+        stmt = select(Client).where(Client.client_id == client_id, Client.user_id == tg_id)
+        if (await session.execute(stmt)).scalars().first():
+            return  # уже существует
 
-        result = await session.execute(select(Client).where(Client.client_id == str(client_uuid)))
-        if result.scalars().first():
-            return
-
-        session.add(Client(client_id=client_uuid, name=name, user_id=tg_id, cookies=cookies))
+        session.add(Client(
+            client_id=client_id,
+            user_id=tg_id,
+            name=name,
+            cookies=cookies
+        ))
 
     @session_manager
     async def get_client_by_name(self, session, tg_id: int, name: str):
@@ -113,20 +113,16 @@ class ORMController:
 
     @session_manager
     async def get_supplies_by_client(self, session, user_id: int, client_id: str):
-        try:
-            client_uuid = uuid.UUID(client_id)
-        except ValueError:
-            return []
 
-        result = await session.execute(select(Client).where(Client.client_id == client_uuid, Client.user_id == user_id))
+        result = await session.execute(select(Client).where(Client.client_id == client_id, Client.user_id == user_id))
         client = result.scalars().first()
         if not client:
             return []
 
-        db_supplies = await session.execute(select(Supply).options(joinedload(Supply.client), joinedload(Supply.user)).where(Supply.client_id == client_uuid))
+        db_supplies = await session.execute(select(Supply).options(joinedload(Supply.client), joinedload(Supply.user)).where(Supply.client_id == client_id))
         db_supplies = {str(s.id): s for s in db_supplies.scalars().all()}
 
-        supplies, api_error = await self.api.fetch_supplies_from_api(client_uuid)
+        supplies, api_error = await self.api.fetch_supplies_from_api(client_id)
         if api_error:
             return [s.to_dict() for s in db_supplies.values()]
 
@@ -148,7 +144,7 @@ class ORMController:
             box_type = supply.get("boxTypeName", "❌ Неизвестный тип")
 
             if supply_id not in db_supply_ids:
-                new_supplies.append(Supply(id=int(supply_id), user_id=user_id, client_id=client_uuid, status=Status.RECEIVED.value, api_created_at=api_created_at, warehouse_name=warehouse_name, warehouse_address=warehouse_address, box_type=box_type))
+                new_supplies.append(Supply(id=int(supply_id), user_id=user_id, client_id=client_id, status=Status.RECEIVED.value, api_created_at=api_created_at, warehouse_name=warehouse_name, warehouse_address=warehouse_address, box_type=box_type))
             else:
                 existing = db_supplies[supply_id]
                 if not existing.api_created_at and api_created_at:
@@ -211,7 +207,7 @@ class ORMController:
             return {"error": "Внутренняя ошибка при регистрации пользователя"}
 
     @session_manager
-    async def register_client(self, session, tg_id: int, name: str, cookies: str):
+    async def register_client(self, session, tg_id: int, client_id: str, name: str, cookies: str):
         existing_client = await self.get_client_by_name(tg_id, name)
         if existing_client:
             return {"error": "Кабинет уже зарегистрирован"}
@@ -221,12 +217,10 @@ class ORMController:
             if not is_valid:
                 return {"error": "Невалидные cookies. Проверьте и попробуйте снова."}
 
-        # ⬇️ ВЫЗЫВАЕМ API и сразу получаем json-ответ
-        api_result = await self.api.register_client_api(tg_id, name, cookies)
+        api_result = await self.api.register_client_api(tg_id, client_id, name, cookies)
         if "error" in api_result:
             return {"error": api_result["error"]}
 
-        client_id = api_result.get("client_id")
         await self.add_client(tg_id, client_id, name, cookies)
         return {"message": "Кабинет зарегистрирован", "client_id": client_id}
 

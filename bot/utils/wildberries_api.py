@@ -170,11 +170,6 @@ class WildberriesAPI:
         self.sticker = data.get("payload", {}).get("sticker")
         return True, None
 
-    import json
-    import logging
-
-    logger = logging.getLogger(__name__)
-
     def authorize(self, code: str):
         auth_url = "https://seller-auth.wildberries.ru/auth/v2/auth"
         payload = {
@@ -583,32 +578,30 @@ class WildberriesAPI:
             raise
 
     async def get_suppliers(self, cookie_string: str, session: ClientSession):
-        """
-        Получает список поставщиков аккаунта.
-
-        Args:
-            cookie_string (str): Строка с куками.
-            session (ClientSession): Асинхронная сессия для HTTP-запроса.
-
-        Returns:
-            dict: JSON с информацией о поставщиках.
-        """
         url = "https://seller.wildberries.ru/ns/suppliers/suppliers-portal-core/suppliers"
         headers = self._initialize_headers(cookie_string)
-        payload = [
-            {
-                "method": "getUserSuppliers",
-                "params": {},
-                "id": self.get_unique_id(),
-                "jsonrpc": "2.0"
-            }
-        ]
+        payload = [{
+            "method": "getUserSuppliers",
+            "params": {},
+            "id": self.get_unique_id(),
+            "jsonrpc": "2.0"
+        }]
+
+        logger.info("📡 Получение списка поставщиков")
+        logger.debug(f"📤 Headers: {headers}")
+        logger.debug(f"📤 Cookies: {self.parse_cookies(cookie_string)}")
+        logger.debug(f"📤 Payload: {json.dumps(payload, indent=2, ensure_ascii=False)}")
 
         try:
-            async with session.post(url, headers=headers, cookies=self.parse_cookies(cookie_string), json=payload) as response:
+            async with session.post(url, headers=headers, cookies=self.parse_cookies(cookie_string),
+                                    json=payload) as response:
+                logger.info(f"📨 Статус ответа: {response.status}")
                 response.raise_for_status()
-                return await response.json()
+                result = await response.json()
+                logger.debug(f"📦 Ответ от API: {json.dumps(result, indent=2, ensure_ascii=False)}")
+                return result
         except Exception as e:
-            logger.error(f"Ошибка при получении списка поставщиков: {e}")
+            logger.exception("❌ Ошибка при получении поставщиков")
             raise
+
 
