@@ -18,22 +18,22 @@ async def get_main_menu_data(dialog_manager: DialogManager, **kwargs):
 
 async def on_my_clients(callback: CallbackQuery, widget, manager: DialogManager):
     """Переход в диалог выбора кабинетов"""
-    await manager.start(ManageClientStates.CHOOSE_CLIENT, show_mode=ShowMode.DELETE_AND_SEND)
+    await manager.start(state=ManageClientStates.CHOOSE_CLIENT, show_mode=ShowMode.EDIT)
 
 
 async def on_add_client(callback: CallbackQuery, widget, manager: DialogManager):
     """Обработчик нажатия на кнопку '➕ Добавить кабинет'"""
-    await manager.start(state=AddClientStates.ENTER_NAME)  # ✅ Переход в состояние добавления кабинета
+    await manager.start(state=AddClientStates.ENTRY_METHOD, show_mode=ShowMode.EDIT)  # ✅ Переход в состояние добавления кабинета
 
 
 async def on_price(callback: CallbackQuery, widget, manager: DialogManager):
     """Обработчик нажатия на кнопку '💰 Прайс'"""
-    await manager.start(state=PriceStates.PRICE_INFO)
+    await manager.start(state=PriceStates.PRICE_INFO, show_mode=ShowMode.EDIT)
 
 
 async def on_info(callback: CallbackQuery, widget, manager: DialogManager):
     """Обработчик нажатия на кнопку 'ℹ️ О сервисе'"""
-    await manager.start(state=InfoStates.ABOUT_SERVICE)
+    await manager.start(state=InfoStates.ABOUT_SERVICE, show_mode=ShowMode.EDIT)
 
 
 main_menu_dialog = Dialog(

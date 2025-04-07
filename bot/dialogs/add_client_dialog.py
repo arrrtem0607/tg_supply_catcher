@@ -1,107 +1,270 @@
+import logging
+import operator
+import aiohttp
+
 from aiogram_dialog import Dialog, Window, ShowMode
-from aiogram_dialog.widgets.kbd import Button, Row
-from aiogram_dialog.widgets.text import Jinja
-from aiogram_dialog.widgets.input import TextInput
+from aiogram_dialog.widgets.kbd import Button, Row, Column, Multiselect, ScrollingGroup, ManagedMultiselect
+from aiogram_dialog.widgets.text import Jinja, Const, Format
+from aiogram_dialog.widgets.input import TextInput, ManagedTextInput
 from aiogram_dialog import DialogManager
 from aiogram.types import Message, CallbackQuery
 
 from bot.utils.statesform import AddClientStates, MainMenu
 from database.controller.ORM import ORMController
+from bot.utils.wildberries_api import WildberriesAPI
+from bot.utils.validations import normalize_phone_number
 
 orm_controller = ORMController()
+logger = logging.getLogger(__name__)
 
-async def get_client_data(dialog_manager: DialogManager, **kwargs):
-    """Передача имени кабинета и Cookies в шаблон"""
+#____________________________
+async def on_phone_entered(
+    message: Message,
+    widget: ManagedTextInput[str],
+    dialog_manager: DialogManager,
+    phone: str,
+):
+    phone = normalize_phone_number(phone)
+    logger.info(f"📞 Введён номер телефона: {phone}")
+    dialog_manager.dialog_data["phone_number"] = phone
+    logger.info("📡 Отправка запроса на получение SMS-кода...")
+
+    try:
+        api = WildberriesAPI(phone_number=phone)
+        success, error_msg = api.send_code()
+        if success:
+            dialog_manager.dialog_data["phone_number"] = phone
+            dialog_manager.dialog_data["sticker"] = api.sticker  # 🔥 сохраняем только sticker
+            await dialog_manager.switch_to(AddClientStates.ENTER_SMS_CODE, show_mode=ShowMode.DELETE_AND_SEND)
+        else:
+            logger.warning(f"⚠️ Не удалось отправить код: {error_msg}")
+            await message.answer(error_msg)
+    except Exception as e:
+        logger.exception("❌ Ошибка при отправке SMS-кода")
+        await message.answer(f"❌ Ошибка при отправке кода: {str(e)}")
+
+async def on_phone_error(
+    message: Message,
+    widget: ManagedTextInput[str],
+    dialog_manager: DialogManager,
+    error: ValueError,
+):
+    logger.warning("🚫 Ошибка валидации номера телефона")
+    await message.answer("⚠️ Введите корректный номер телефона в формате +79991234567")
+
+async def on_sms_code_entered(
+        message: Message,
+        widget: ManagedTextInput[str],
+        dialog_manager: DialogManager,
+        code: str):
+    logger.info(f"📨 Введён SMS-код: {code}")
+
+    phone = dialog_manager.dialog_data.get("phone_number")
+    sticker = dialog_manager.dialog_data.get("sticker")
+
+    if not phone or not sticker:
+        await message.answer("⚠️ Ошибка: данные утеряны. Попробуйте сначала.")
+        return
+
+    api = WildberriesAPI(phone_number=phone)
+    api.sticker = sticker
+
+    try:
+        result = api.authorize(code)
+
+        cookies_dict = result["cookies"]
+        access_token = result["json"]["payload"]["access_token"]
+        validation_key = result["wbx_validation_key"]
+
+        cookie_string = f"WBTokenV3={access_token}"
+        if validation_key:
+            cookie_string += f";wbx-validation-key={validation_key}"
+            dialog_manager.dialog_data["cookie_string"] = cookie_string
+
+        async with aiohttp.ClientSession() as session:
+            api = WildberriesAPI()
+            raw_suppliers = await api.get_suppliers(cookie_string, session)
+
+            dialog_manager.dialog_data["raw_suppliers_response"] = raw_suppliers
+            dialog_manager.dialog_data["suppliers_data"] = [
+                (supplier["name"], supplier["id"])
+                for supplier in raw_suppliers[0]["result"]["suppliers"]
+            ]
+
+        await dialog_manager.switch_to(AddClientStates.SELECT_CLIENTS, show_mode=ShowMode.DELETE_AND_SEND)
+    except Exception as e:
+        logger.exception("❌ Ошибка авторизации")
+        await message.answer(f"❌ Ошибка авторизации: {str(e)}")
+
+async def on_sms_code_error(
+    message: Message,
+    widget: ManagedTextInput[str],
+    dialog_manager: DialogManager,
+    error: ValueError,
+):
+    logger.warning("🚫 Ошибка ввода авторизационного кода")
+    await message.answer("⚠️ Ошибка кода, попробуйте еще раз")
+    await dialog_manager.switch_to(AddClientStates.ENTER_PHONE, show_mode=ShowMode.DELETE_AND_SEND)
+
+async def get_suppliers_data(dialog_manager: DialogManager, **kwargs):
+    # Предположим, что результат запроса к API уже сохранён в dialog_manager или передаётся через kwargs
+    raw_data = dialog_manager.dialog_data.get("raw_suppliers_response")
+
+    suppliers_raw = raw_data[0]["result"]["suppliers"]
+    suppliers = [(supplier["name"], supplier["id"]) for supplier in suppliers_raw]
+
     return {
-        "client_name": dialog_manager.find("client_name").get_value() or "Без имени",
-        "cookies": dialog_manager.find("cookies").get_value() or "Нет данных"
+        "suppliers": suppliers,
+        "count": len(suppliers),
     }
 
-async def go_to_next_step(message: Message, widget, manager: DialogManager, value: str):
-    """Функция для перехода к следующему шагу"""
-    await manager.next(show_mode=ShowMode.DELETE_AND_SEND)
+async def on_add_selected(callback: CallbackQuery, button: Button, manager: DialogManager):
+    try:
+        multiselect: ManagedMultiselect = manager.find("m_suppliers")
+        selected_ids = multiselect.get_checked()
 
-async def confirm_client_data(callback: CallbackQuery, widget, manager: DialogManager):
-    """Подтверждение добавления кабинета, регистрация через API и сохранение в БД."""
+        tg_id = callback.from_user.id
+        suppliers_data = manager.dialog_data.get("suppliers_data", [])
+        if not selected_ids:
+            await callback.message.answer("⚠️ Вы не выбрали ни одного поставщика.")
+            return
 
-    tg_id = callback.from_user.id
-    name = manager.find("client_name").get_value() or "Без имени"
-    cookies = manager.find("cookies").get_value() or "{}"
+        cookie_string = manager.dialog_data.get("cookie_string")
+        if not cookie_string:
+            await callback.message.answer("❌ Ошибка: отсутствует cookie_string.")
+            return
 
-    # ✅ Вызываем ORM-контроллер для регистрации клиента
-    result = await orm_controller.register_client(tg_id, name, cookies)
+        await register_suppliers(selected_ids, cookie_string, tg_id, suppliers_data)
+        await callback.message.answer("✅ Выбранные поставщики зарегистрированы.")
+        await manager.start(state=MainMenu.MAIN_MENU, show_mode=ShowMode.DELETE_AND_SEND)
 
-    if "error" in result:
-        await callback.message.answer(f"❌ {result['error']}", parse_mode="HTML")
-    else:
-        client_id = result["client_id"]
-        await callback.message.answer(
-            f"✅ Кабинет <b>{name}</b> успешно добавлен! 🎉\n"
-            f"🔑 <b>ID клиента:</b> {client_id}",
-            parse_mode="HTML"
+    except Exception as e:
+        logger.exception("❌ Ошибка при добавлении выбранных поставщиков")
+        await callback.message.answer(f"❌ Ошибка: {str(e)}")
+
+async def on_add_all(callback: CallbackQuery, button: Button, manager: DialogManager):
+    try:
+        suppliers = manager.dialog_data.get("suppliers_data", [])
+        if not suppliers:
+            await callback.message.answer("❌ Список поставщиков пуст.")
+            return
+
+        all_ids = [s[1] for s in suppliers]
+        cookie_string = manager.dialog_data.get("cookie_string")
+        if not cookie_string:
+            await callback.message.answer("❌ Ошибка: отсутствует cookie_string.")
+            return
+
+        tg_id = callback.from_user.id
+
+        await register_suppliers(all_ids, cookie_string, tg_id, suppliers)
+        await callback.message.answer("✅ Все поставщики зарегистрированы.")
+        await manager.start(state=MainMenu.MAIN_MENU, show_mode=ShowMode.DELETE_AND_SEND)
+
+    except Exception as e:
+        logger.exception("❌ Ошибка при добавлении всех поставщиков")
+        await callback.message.answer(f"❌ Ошибка: {str(e)}")
+
+async def register_suppliers(
+    selected_ids: list[str],
+    base_cookie: str,
+    tg_id: int,
+    suppliers_data: list[tuple[str, str]],
+):
+    for supplier_id in selected_ids:
+        name = next((n for n, sid in suppliers_data if sid == supplier_id), None)
+        if not name:
+            logger.warning(f"⚠️ Не найдено имя для поставщика {supplier_id}")
+            continue
+
+        # 👇 Дополняем куки
+        supplier_cookie = (
+            f"{base_cookie};"
+            f"x-supplier-id={supplier_id};"
+            f"x-supplier-id-external={supplier_id}"
         )
 
-    await manager.done(show_mode=ShowMode.DELETE_AND_SEND)
+        logger.info(f"📦 Регистрируем поставщика: {supplier_id} ({name})")
+        logger.debug(f"🔐 Полный cookie_string: {supplier_cookie}")
 
+        await orm_controller.register_client(
+            tg_id=tg_id,
+            client_id=supplier_id,
+            name=name,
+            cookies=supplier_cookie,
+        )
 
 add_client_dialog = Dialog(
-    # Шаг 1: Ввод имени кабинета
     Window(
         Jinja(
-            "🆕 <b>Добавление кабинета</b>\n\n"
-            "📌 <b>Введите название кабинета:</b>\n"
-            "✏️ <i>Отправьте сообщение с названием, чтобы продолжить.</i>"
+            "👋 <b>Добавление новых клиентов</b>\n\n"
+            "🔐 Регистрация происходит через номер телефона. "
+            "Вы введёте свой номер, получите SMS-код от Wildberries, а затем выберете кабинеты для регистрации из списка доступных.\n\n"
+            "📲 <b>Готовы начать?</b>"
+        ),
+        Column(
+            Button(Const("➡️ Начать"), id="start_phone_flow",
+                   on_click=lambda c, w, m: m.switch_to(AddClientStates.ENTER_PHONE, show_mode=ShowMode.EDIT)),
+            Button(Const("🔙 Назад"), id="back", on_click=lambda c, w, m: m.start(MainMenu.MAIN_MENU)),
+        ),
+        state=AddClientStates.ENTRY_METHOD,
+        parse_mode="HTML",
+    ),
+    Window(
+        Const("📞 <b>Введите номер телефона:</b>\n"
+              "<code>+79991234567</code>\n"
+              "📩 <i>Мы отправим на него код подтверждения</i>"),
+        TextInput(
+            id="phone_number",
+            type_factory=str,  # можно заменить на кастомный валидатор
+            on_success=on_phone_entered,
+            on_error=on_phone_error,
+        ),
+        Row(
+            Button(Const("🔙 Назад"), id="back", on_click=lambda c, w, m: m.switch_to(AddClientStates.ENTRY_METHOD, show_mode=ShowMode.EDIT)),
+        ),
+        state=AddClientStates.ENTER_PHONE,
+        parse_mode="HTML",
+    ),
+    Window(
+        Jinja(
+            "📲 <b>Введите код из SMS от WildBerries для получения списка доступных клиентов</b>\n\n"
         ),
         TextInput(
-            id="client_name",
-            on_success=go_to_next_step,
+            id="sms_code",
+            type_factory=str,
+            on_success=on_sms_code_entered,
+            on_error=on_sms_code_error,
         ),
         Row(
-            Button(Jinja("🔙 Назад"), id="back", on_click=lambda c, w, m: m.start(MainMenu.MAIN_MENU, show_mode=ShowMode.EDIT)),
+            Button(Const("🔙 Назад"), id="back", on_click=lambda c, w, m: m.switch_to(AddClientStates.ENTER_PHONE, show_mode=ShowMode.EDIT)),
         ),
-        state=AddClientStates.ENTER_NAME,
+        state=AddClientStates.ENTER_SMS_CODE,
         parse_mode="HTML",
     ),
-
-    # Шаг 2: Инструкция + Ввод Cookies
     Window(
-        Jinja(
-            "🆕 <b>Добавление кабинета</b>\n\n"
-            "📌 Кабинет: <b>{{ client_name }}</b>\n\n"
-            "📜 <b>Как получить Cookies?</b>\n\n"
-            "1️⃣ Установите расширение <b>Cookie-Editor</b> для вашего браузера.\n"
-            "2️⃣ Авторизуйтесь в кабинете WB.\n"
-            "3️⃣ Откройте <b>Cookie-Editor</b>, найдите <code>WBToken</code> и <code>WBAuth</code>.\n"
-            "4️⃣ Скопируйте их и отправьте сюда в формате:\n"
-            "<code>{\"WBToken\": \"ваш_токен\", \"WBAuth\": \"ваш_токен\"}</code>\n\n"
-            "✏️ <i>Введите Cookies в ответном сообщении, чтобы продолжить.</i>"
-        ),
-        TextInput(
-            id="cookies",
-            on_success=go_to_next_step,
+        Const("📦 Выберите поставщиков из списка ниже или нажмите 'Добавить всех'"),
+        ScrollingGroup(
+            Multiselect(
+                checked_text=Format("✓ {item[0]}"),
+                unchecked_text=Format("{item[0]}"),
+                id="m_suppliers",
+                item_id_getter=operator.itemgetter(1),
+                items="suppliers",
+            ),
+            id="suppliers_scroll",
+            width=1,
+            height=5,
         ),
         Row(
-            Button(Jinja("🔙 Назад"), id="back", on_click=lambda c, w, m: m.switch_to(AddClientStates.ENTER_NAME, show_mode=ShowMode.EDIT)),
-        ),
-        state=AddClientStates.ENTER_COOKIES,
-        getter=get_client_data,
-        parse_mode="HTML",
-    ),
-
-    # Шаг 3: Подтверждение данных
-    Window(
-        Jinja(
-            "✅ <b>Подтверждение данных</b>\n\n"
-            "📌 <b>Кабинет:</b> {{ client_name }}\n"
-            "🔑 <b>Cookies:</b> <code>{{ cookies }}</code>\n\n"
-            "Все верно?"
+            Button(Const("✅ Добавить выбранных"), id="add_selected", on_click=on_add_selected),
+            Button(Const("📋 Добавить всех"), id="add_all", on_click=on_add_all),
         ),
         Row(
-            Button(Jinja("✅ Подтвердить"), id="confirm", on_click=confirm_client_data),
-            Button(Jinja("🔙 Назад"), id="back", on_click=lambda c, w, m: m.switch_to(AddClientStates.ENTER_COOKIES, show_mode=ShowMode.EDIT)),
+            Button(Const("🔙 В главное меню"), id="to_main", on_click=lambda c, w, m: m.start(MainMenu.MAIN_MENU)),
         ),
-        state=AddClientStates.CONFIRMATION,
-        getter=get_client_data,
+        state=AddClientStates.SELECT_CLIENTS,
+        getter=get_suppliers_data,
         parse_mode="HTML",
-    ),
+    )
 )

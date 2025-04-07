@@ -37,7 +37,7 @@ async def run_bot():
     setup_dialogs(dp)
 
     # ✅ Теперь инициализируем базу через `initialize_database()`
-    await initialize_database()
+    # await initialize_database()
     logging.info("✅ Таблицы проверены/созданы в базе данных!")
 
     try:
