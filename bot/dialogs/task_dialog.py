@@ -255,22 +255,28 @@ task_dialog = Dialog(
         Jinja(
             "{% if no_clients %}❌ У вас пока нет кабинетов. Добавьте первый, нажав на кнопку ниже.\n\n"
             "{% else %}👥 <b>Выберите кабинет:</b>\n\n"
-            "{% for client in clients %}🔹 <b>{{ client[0] }}</b> (ID: {{ client[1] }})\n{% endfor %}{% endif %}"
+            "{% for client in clients %}🔹 <b>{{ client[0] }}</b>\n{% endfor %}{% endif %}"
         ),
-        Select(
-            text=Format("{item[0]}"),
-            id="select_supply",
-            item_id_getter=operator.itemgetter(1),
-            items="clients",  # ← теперь ключ совпадает
-            on_click=on_client_selected,
+        ScrollingGroup(
+            Select(
+                text=Format("{item[0]}"),
+                id="select_supply",
+                item_id_getter=operator.itemgetter(1),
+                items="clients",
+                on_click=on_client_selected,
+            ),
+            id="clients_scroll",
+            width=1,
+            height=6,
         ),
         Button(
             Jinja("➕ Добавить кабинет"),
             id="add_client",
             on_click=on_add_client,
-            when=lambda data, w, m: data.get("no_clients", False)  # Показываем кнопку, если нет кабинетов
+            when=lambda data, w, m: data.get("no_clients", False)
         ),
-        Button(Jinja("🔙 Назад"), id="back", on_click=lambda c, w, m: m.start(state=MainMenu.MAIN_MENU, show_mode=ShowMode.EDIT)),
+        Button(Jinja("🔙 Назад"), id="back",
+               on_click=lambda c, w, m: m.start(state=MainMenu.MAIN_MENU, show_mode=ShowMode.EDIT)),
         state=ManageClientStates.CHOOSE_CLIENT,
         getter=get_clients_list,
         parse_mode="HTML",
