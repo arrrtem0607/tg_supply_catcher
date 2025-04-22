@@ -2,6 +2,7 @@ import logging
 import random
 import functools
 import asyncio
+import aiohttp
 import subprocess
 import json
 import requests
@@ -125,6 +126,71 @@ class WildberriesAPI:
         return cookies
 
     @staticmethod
+    async def get_secure_token() -> str | None:
+        """
+        Получает one-time-token с antibot.wildberries.ru (x-wb-captcha-token).
+        Используется при планировании поставки.
+        """
+        url = "https://antibot.wildberries.ru/api/v1/create-one-time-token"
+        headers = {
+            "User-Agent": "Mozilla/5.0",
+            "Content-Type": "application/json",
+            "Accept": "*/*",
+        }
+
+        async with aiohttp.ClientSession() as session:
+            try:
+                # Первый запрос — без payload
+                payload1 = {
+                    "action": "ADD_OR_UPDATE_SUPPLY",
+                    "challenge": {},
+                    "userScope": {}
+                }
+                async with session.post(url, headers=headers, json=payload1) as r:
+                    raw = await r.text()
+                    logger.info(f"🔐 Token запрос #1 — статус: {r.status}")
+                    resp = json.loads(raw)
+
+                    if r.status == 200 and "secureToken" in resp:
+                        logger.info("✅ secureToken получен с первой попытки")
+                        return resp["secureToken"]
+
+                    # Challenge
+                    if resp.get("code") == 498 and "challenge" in resp:
+                        challenge_payload = resp["challenge"].get("payload")
+                        if not challenge_payload:
+                            logger.warning("⚠️ Challenge без payload — прервано.")
+                            return None
+
+                        payload2 = {
+                            "action": "ADD_OR_UPDATE_SUPPLY",
+                            "challenge": {
+                                "scriptPath": "/scripts/challenge_fingerprint_v1.0.3.js",
+                                "payload": challenge_payload,
+                            },
+                            "solution": {
+                                "payload": Env.get_antibot_solution()
+                            },
+                            "userScope": {}
+                        }
+
+                        async with session.post(url, headers=headers, json=payload2) as r2:
+                            raw2 = await r2.text()
+                            logger.info(f"🔐 Token запрос #2 — статус: {r2.status}")
+                            resp2 = json.loads(raw2)
+
+                            token = resp2.get("secureToken")
+                            if token:
+                                logger.info("✅ secureToken получен после challenge")
+                                return token
+                            else:
+                                logger.warning("❌ Token не получен во втором запросе")
+                                return None
+            except Exception as e:
+                logger.exception("❌ Ошибка при получении secureToken")
+                return None
+
+    @staticmethod
     def get_captcha_token():
         get_task_url = "https://pow.wb.ru/api/v1/short/get-task"
         verify_url = "https://pow.wb.ru/api/v1/short/verify-answer"
@@ -144,7 +210,7 @@ class WildberriesAPI:
         return ret
 
     def send_code(self):
-        captcha_token = self.get_captcha_token()
+        captcha_token = self.get_secure_token()
         code_url = "https://seller-auth.wildberries.ru/auth/v2/code/wb-captcha"
         payload = {
             "phone_number": self.phone_number,
