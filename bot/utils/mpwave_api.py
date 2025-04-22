@@ -16,7 +16,7 @@ STATUS_TRANSLATION = {
 }
 
 class MPWAVEAPI:
-    BASE_URL = "http://127.0.0.1:8001"
+    BASE_URL = "https://waveapitest.ru"
 
     @staticmethod
     async def register_user_api(tg_id: int):
