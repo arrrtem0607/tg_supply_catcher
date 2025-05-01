@@ -31,7 +31,7 @@ async def on_phone_entered(
 
     try:
         api = WildberriesAPI(phone_number=phone)
-        success, error_msg = api.send_code()
+        success, error_msg = await api.send_code()
         if success:
             dialog_manager.dialog_data["phone_number"] = phone
             dialog_manager.dialog_data["sticker"] = api.sticker  # 🔥 сохраняем только sticker
