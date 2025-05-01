@@ -10,11 +10,11 @@ from aiogram_dialog import DialogManager
 from aiogram.types import Message, CallbackQuery
 
 from bot.utils.statesform import AddClientStates, MainMenu
-from database.controller.ORM import ORMController
+from database import get_orm
 from bot.utils.wildberries_api import WildberriesAPI
 from bot.utils.validations import normalize_phone_number
 
-orm_controller = ORMController()
+orm_controller = get_orm()
 logger = logging.getLogger(__name__)
 
 #____________________________

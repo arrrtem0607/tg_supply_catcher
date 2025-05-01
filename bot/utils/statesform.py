@@ -36,5 +36,9 @@ class SupplyStates(StatesGroup):
     CHOOSE_SKIP_DATES = State()
     CONFIRM = State()
 
-
-
+class BalanceStates(StatesGroup):
+    MAIN = State()
+    SELECT_AMOUNT = State()
+    SHOW_PAYMENT = State()
+    CHECK_PAYMENT = State()
+    CONFIRM_SUBSCRIPTION = State()  # ← перенеси сюда

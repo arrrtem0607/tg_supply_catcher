@@ -1,16 +1,18 @@
-import logging
 from datetime import datetime
-from sqlalchemy import inspect, text, select
+from sqlalchemy import inspect, text, select, update
 from sqlalchemy.orm import joinedload
 from aiohttp import ClientSession
 
 from database.entities.core import Base, Database
-from database.entities.models import User, Client, Supply
+from database.entities.models import User, Client, Supply, Subscription
 from bot.enums.status_enums import Status
 from bot.utils.mpwave_api import MPWAVEAPI
 from bot.utils.wildberries_api import WildberriesAPI
+from database.controller.balance_controller import BalanceController
+from database.db_utils import session_manager
+from bot.utils.logger import setup_logger
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 STATUS_TRANSLATION = {
     "RECEIVED": "📥 Получено",
@@ -27,27 +29,12 @@ async def fetch_supplies_from_api(client_id: str):
     """Запрашивает поставки клиента через MPWAVEAPI."""
     return await MPWAVEAPI.fetch_supplies_from_api(client_id)
 
-def session_manager(func):
-    """Декоратор для автоматического управления сессией"""
-    async def wrapper(self, *args, **kwargs):
-        async with self.db.session() as session:  # ✅ Открываем сессию
-            async with session.begin():  # ✅ Начинаем транзакцию
-                try:
-                    result = await func(self, session, *args, **kwargs)  # ✅ Передаем session правильно
-                    await session.commit()  # ✅ Коммитим изменения
-                    logger.debug(f"✅ {func.__name__} выполнена успешно")
-                    return result
-                except Exception as e:
-                    await session.rollback()  # ✅ Откатываем при ошибке
-                    logger.error(f"❌ Ошибка в {func.__name__}: {e}", exc_info=True)
-                    raise e
-    return wrapper
-
 class ORMController:
     def __init__(self, db: Database = Database()):
         self.db = db
         self.api = MPWAVEAPI()
         self.wb_api = WildberriesAPI()
+        self.balance = BalanceController(db)  # ← добавлено
         logger.info("ORMController initialized")
 
     async def create_tables(self):
@@ -357,3 +344,32 @@ class ORMController:
         client.cookies = new_cookies
         logger.info(f"✅ Cookies клиента {client_id} успешно обновлены в БД")
         return {"message": "Cookies клиента обновлены"}
+
+    @session_manager
+    async def create_subscription(self, session, user_id: int, tariff_id: int, start: datetime, end: datetime):
+        # Деактивируем все активные подписки
+        stmt = (
+            update(Subscription)
+            .where(Subscription.user_id == user_id, Subscription.is_active == True)
+            .values(is_active=False)
+        )
+        await session.execute(stmt)
+
+        # Создаём новую активную подписку
+        new_subscription = Subscription(
+            user_id=user_id,
+            tariff_id=tariff_id,
+            start_date=start,
+            end_date=end,
+            is_active=True,
+        )
+        session.add(new_subscription)
+
+    @session_manager
+    async def get_active_subscription(self, session, user_id: int):
+        stmt = select(Subscription).where(
+            Subscription.user_id == user_id,
+            Subscription.is_active == True
+        ).limit(1)
+        result = await session.execute(stmt)
+        return result.scalars().first()

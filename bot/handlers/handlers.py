@@ -2,11 +2,11 @@ from aiogram import Router
 from aiogram.types import Message
 from aiogram.filters import CommandStart
 from aiogram_dialog import DialogManager, ShowMode
-from database.controller.ORM import ORMController
+from database import get_orm
 from bot.utils.statesform import MainMenu
 
 
-orm_controller = ORMController()
+orm_controller = get_orm()
 router = Router()
 
 

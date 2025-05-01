@@ -122,3 +122,13 @@ class Tariff(Base):
     price: Mapped[int] = mapped_column(BigInteger, nullable=False)
     duration_days: Mapped[int] = mapped_column(Integer, nullable=True)  # Если null, то разовый отлов
     is_subscription: Mapped[bool] = mapped_column(Boolean, default=True)
+
+class ClientBalance(Base):
+    __tablename__ = "client_balances"
+    __table_args__ = {"schema": "public"}
+
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("public.users.tg_id"), primary_key=True)
+    balance: Mapped[float] = mapped_column(BigInteger, default=0)
+
+    user = relationship("User", backref="balance")
+

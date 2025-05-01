@@ -6,13 +6,13 @@ from aiogram_dialog.widgets.kbd import Select, Button, ScrollingGroup, Back, Cal
 from aiogram_dialog.widgets.text import Jinja, Format, Const
 from aiogram_dialog import DialogManager
 from aiogram.types import CallbackQuery
-from database.controller.ORM import ORMController
+from database import get_orm
 from bot.utils.statesform import SupplyStates
 from bot.enums.status_enums import Status
 
 logger = logging.getLogger(__name__)
 
-orm_controller = ORMController()
+orm_controller = get_orm()
 
 PAGE_SIZE = 5  # Количество поставок на одной странице
 

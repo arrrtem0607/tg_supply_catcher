@@ -6,7 +6,7 @@ from bot.middlewares.is_admin_middleware import IsAdminMiddleware  # Импор�
 from bot.handlers.handlers import router as start_router
 from bot.dialogs.main_menu_dialog import main_menu_dialog# Импортируем сам диалог
 from bot.dialogs.info_dialog import info_dialog
-from bot.dialogs.price_dialog import price_dialog
+from bot.dialogs.price_dialog import balance_dialog
 from bot.dialogs.add_client_dialog import add_client_dialog
 from bot.dialogs.supply_dialog import supply_dialog
 from bot.dialogs.task_dialog import task_dialog
@@ -31,7 +31,7 @@ async def get_all_routers():
 
     router.include_router(start_router)
     router.include_router(main_menu_dialog)
-    router.include_router(price_dialog)
+    router.include_router(balance_dialog)
     router.include_router(info_dialog)
     router.include_router(add_client_dialog)
     router.include_router(task_dialog)
