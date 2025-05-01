@@ -2,7 +2,6 @@ import logging
 import random
 import functools
 import asyncio
-import aiohttp
 import subprocess
 import json
 import requests
@@ -179,7 +178,7 @@ class WildberriesAPI:
                 try:
                     resp2 = response.json()
                 except json.JSONDecodeError:
-                    print("❌ Невалидный JSON (второй ответ):\n", raw2)
+                    print("❌ Невалидный JSON (второй ответ):\n", response.text)
                     return None
                 if resp2.get("code") == 498 and "challenge" in resp2:
                     payload = resp2["challenge"].get("payload")
@@ -226,10 +225,6 @@ class WildberriesAPI:
         except Exception as e:
             print("Неизвестная ошибка: " + str(e))
             return None
-
-
-
-
 
     @staticmethod
     def get_captcha_token():
