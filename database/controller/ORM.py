@@ -1,5 +1,5 @@
-from datetime import datetime
-from sqlalchemy import inspect, text, select, update
+from datetime import datetime, timedelta
+from sqlalchemy import inspect, text, select
 from sqlalchemy.orm import joinedload
 from aiohttp import ClientSession
 
@@ -347,29 +347,42 @@ class ORMController:
 
     @session_manager
     async def create_subscription(self, session, user_id: int, tariff_id: int, start: datetime, end: datetime):
-        # Деактивируем все активные подписки
         stmt = (
-            update(Subscription)
+            select(Subscription)
             .where(Subscription.user_id == user_id, Subscription.is_active == True)
-            .values(is_active=False)
+            .limit(1)
         )
-        await session.execute(stmt)
+        result = await session.execute(stmt)
+        current_subscription = result.scalars().first()
 
-        # Создаём новую активную подписку
-        new_subscription = Subscription(
-            user_id=user_id,
-            tariff_id=tariff_id,
-            start_date=start,
-            end_date=end,
-            is_active=True,
-        )
-        session.add(new_subscription)
+        if current_subscription:
+            # Продлеваем подписку: добавляем 30 дней от текущей даты окончания
+            current_subscription.end_date += timedelta(days=30)
+            logger.info(f"🔁 Продлена подписка для user_id={user_id} до {current_subscription.end_date}")
+            return current_subscription.end_date
+        else:
+            # Создаём новую подписку
+            new_subscription = Subscription(
+                user_id=user_id,
+                tariff_id=tariff_id,
+                start_date=start,
+                end_date=end,
+                is_active=True,
+            )
+            session.add(new_subscription)
+            logger.info(f"🆕 Создана новая подписка для user_id={user_id}")
+            return new_subscription.end_date
 
     @session_manager
     async def get_active_subscription(self, session, user_id: int):
-        stmt = select(Subscription).where(
-            Subscription.user_id == user_id,
-            Subscription.is_active == True
-        ).limit(1)
+        stmt = (
+            select(Subscription)
+            .options(joinedload(Subscription.tariff))  # подгружаем tariff сразу
+            .where(
+                Subscription.user_id == user_id,
+                Subscription.is_active == True
+            )
+            .limit(1)
+        )
         result = await session.execute(stmt)
         return result.scalars().first()

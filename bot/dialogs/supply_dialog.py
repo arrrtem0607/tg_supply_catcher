@@ -1,4 +1,3 @@
-import logging
 from datetime import date
 
 from aiogram_dialog import Dialog, Window, ShowMode
@@ -9,8 +8,9 @@ from aiogram.types import CallbackQuery
 from database import get_orm
 from bot.utils.statesform import SupplyStates
 from bot.enums.status_enums import Status
+from bot.utils.logger import setup_logger
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 orm_controller = get_orm()
 

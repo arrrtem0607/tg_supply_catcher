@@ -1,4 +1,3 @@
-import logging
 import random
 import functools
 import asyncio
@@ -9,8 +8,9 @@ from aiohttp import ClientResponseError, ClientSession
 
 from datetime import datetime, timedelta
 from configurations.reading_env import Env
+from bot.utils.logger import setup_logger
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 def use_proxy(func):
     @functools.wraps(func)
@@ -653,11 +653,11 @@ class WildberriesAPI:
         headers = self._initialize_headers(cookie_string)
         headers["x-wb-captcha-token"] = token
         response = await self._post(url, payload, headers, session)
-        logging.debug(
+        logger.debug(
             f"Дата доставки отправлена с кодом ответа {response['id']}, ID: {preorder_id}"
         )
         headers.pop("x-wb-captcha-token")
-        logging.debug(f"Ответ для ID {preorder_id}: {response}")
+        logger.debug(f"Ответ для ID {preorder_id}: {response}")
         return response
 
     async def delete_supply(self, preorder_id: int, cookie_string: str, session: ClientSession):

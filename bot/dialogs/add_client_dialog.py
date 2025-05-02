@@ -1,4 +1,3 @@
-import logging
 import operator
 import aiohttp
 
@@ -13,9 +12,11 @@ from bot.utils.statesform import AddClientStates, MainMenu
 from database import get_orm
 from bot.utils.wildberries_api import WildberriesAPI
 from bot.utils.validations import normalize_phone_number
+from bot.utils.logger import setup_logger
+
 
 orm_controller = get_orm()
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 #____________________________
 async def on_phone_entered(

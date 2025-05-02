@@ -8,7 +8,7 @@ LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 class TelegramLogHandler(logging.Handler):
     def __init__(self, token: str, chat_id: str, min_level: int = logging.ERROR):
-        super().__init__(level=logging.INFO)
+        super().__init__(level=logging.WARNING)
         self.token = token
         self.chat_id = chat_id
         self.api_url = f"https://api.telegram.org/bot{self.token}/sendMessage"

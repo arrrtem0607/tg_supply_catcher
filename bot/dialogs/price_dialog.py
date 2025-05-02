@@ -3,7 +3,7 @@ from aiogram_dialog.widgets.kbd import Button, Row, Column, Select, Url
 from aiogram_dialog.widgets.input import TextInput, ManagedTextInput
 from aiogram_dialog.widgets.text import Jinja, Const
 from aiogram.types import CallbackQuery, Message
-from datetime import datetime, timedelta, UTC
+from datetime import datetime, timedelta
 
 from bot.utils.statesform import MainMenu, BalanceStates
 from database import get_orm
@@ -63,18 +63,6 @@ async def get_payment_link(dialog_manager: DialogManager, **kwargs):
         "amount": dialog_manager.dialog_data.get("amount")
     }
 
-async def on_check_payment(callback: CallbackQuery, button: Button, manager: DialogManager):
-    operation_id = manager.dialog_data.get("payment_link").split("uuid=")[-1]
-    status = await api.get_payment_status(operation_id)
-    if status == "APPROVED":
-        user_id = callback.from_user.id
-        amount = manager.dialog_data.get("amount", 0)
-        await orm_controller.balance.add_balance(user_id, amount)
-        await callback.answer("✅ Оплата подтверждена, баланс пополнен")
-        await manager.done()
-    else:
-        await callback.answer("❌ Оплата не найдена или ещё не подтверждена", show_alert=True)
-
 async def on_cancel_payment(callback: CallbackQuery, button: Button, manager: DialogManager):
     manager.dialog_data.clear()
     await callback.answer("❌ Оплата отменена")
@@ -91,13 +79,14 @@ async def on_subscribe_click(callback: CallbackQuery, button: Button, manager: D
 
 async def confirm_subscription(callback: CallbackQuery, button: Button, manager: DialogManager):
     user_id = callback.from_user.id
-    tariff_id = 1  # ID месячной подписки
-    now = datetime.now(UTC)
+    tariff_id = 1
+    now = datetime.utcnow()
     end = now + timedelta(days=30)
     success = await orm_controller.balance.deduct_balance(user_id, 25000)
     if success:
-        await orm_controller.create_subscription(user_id, tariff_id, now, end)
-        await callback.answer("✅ Подписка активирована", show_alert=True)
+        final_date = await orm_controller.create_subscription(user_id, tariff_id, now, end)
+        days_left = (final_date - now).days
+        await callback.answer(f"✅ Подписка активна до {final_date.strftime('%d.%m.%Y')} ({days_left} дней)", show_alert=True)
         await manager.done()
     else:
         await callback.answer("❌ Не удалось списать средства", show_alert=True)
@@ -109,9 +98,9 @@ balance_dialog = Dialog(
         💰 <b>Ваш баланс:</b> <code>{{ balance }}₽</code>
 
         📦 <b>Тарифы и услуги:</b>
-        • 📆 <b>Месячная подписка:</b> 25 000₽
-        • 📦 <b>Коробная поставка:</b> 500₽
-        • 🏗️ <b>Монопаллетная поставка:</b> 1 000₽
+        • 📆 Месячная подписка: <b>25 000₽</b>
+        • 📦 Коробная поставка: <b>1 000₽</b>
+        • 🏗️ Монопаллетная поставка: <b>1 500₽</b>
 
         Выберите действие:
         """),
@@ -130,6 +119,11 @@ balance_dialog = Dialog(
 
         Выберите сумму из списка или введите вручную:
         """),
+        TextInput(
+            id="custom_amount",
+            type_factory=str,
+            on_success=on_custom_amount_entered
+        ),
         Column(
             Select(
                 text=Jinja("{{item[0]}}"),
@@ -138,20 +132,19 @@ balance_dialog = Dialog(
                 items=amount_options,
                 on_click=on_amount_selected
             ),
+            Button(Const("⬅️ Назад"), id="back_to_balance", on_click=lambda c, w, m: m.back()),
         ),
-        TextInput(
-            id="custom_amount",
-            type_factory=str,
-            on_success=on_custom_amount_entered
-        ),
-        state=BalanceStates.SELECT_AMOUNT
+        state=BalanceStates.SELECT_AMOUNT,
+        parse_mode="HTML"
     ),
     Window(
-        Jinja("<b>Сумма к оплате:</b> <code>{{ amount }}₽</code><b>Перейдите по ссылке для оплаты:</b>"),
+        Jinja("""
+<b>Сумма к оплате:</b> <code>{{ amount }}₽</code>
+<b>Перейдите по ссылке для оплаты:</b>
+"""),
         Column(
             Url(Const("🌐 Перейти к оплате"), url=Jinja("{{ payment_link }}")),
             Button(Const("❌ Отменить оплату"), id="cancel_payment", on_click=on_cancel_payment),
-            Button(Const("🔄 Проверить оплату"), id="check", on_click=on_check_payment),
         ),
         state=BalanceStates.SHOW_PAYMENT,
         getter=get_payment_link,

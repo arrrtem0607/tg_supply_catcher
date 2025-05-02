@@ -1,3 +1,4 @@
+from datetime import datetime
 from aiogram_dialog import Dialog, Window, ShowMode
 from aiogram_dialog.widgets.kbd import Button, Column
 from aiogram_dialog.widgets.text import Jinja
@@ -9,16 +10,25 @@ from database import get_orm
 
 orm_controller = get_orm()
 
+
 async def get_main_menu_data(dialog_manager: DialogManager, **kwargs):
-    """Функция загрузки данных о балансе и тарифе пользователя из БД"""
     user_id = dialog_manager.event.from_user.id
     balance = await orm_controller.balance.get_balance(user_id)
-    active_sub = await orm_controller.get_active_subscription(user_id)
+    sub = await orm_controller.get_active_subscription(user_id)
 
-    return {
-        "balance": f"{balance:,}₽",  # Пробелы в числах
-        "tariff": active_sub.tariff.name if active_sub else "Нет активной подписки",
-    }
+    if sub:
+        days_left = (sub.end_date - datetime.utcnow()).days
+        return {
+            "balance": f"{balance:,}₽",
+            "subscription_end": sub.end_date.strftime("%d.%m.%Y"),
+            "days_left": days_left,
+        }
+    else:
+        return {
+            "balance": f"{balance:,}₽",
+            "subscription_end": None,
+            "days_left": None,
+        }
 
 
 async def on_my_clients(callback: CallbackQuery, widget, manager: DialogManager):
@@ -43,12 +53,15 @@ async def on_info(callback: CallbackQuery, widget, manager: DialogManager):
 
 main_menu_dialog = Dialog(
     Window(
-        Jinja(
-            "🔹 <b>Главное меню</b>\n\n"
-            "💰 <b>Баланс:</b> {{ balance }}\n"
-            "📜 <b>Тариф:</b> {{ tariff }}\n\n"
-            "Выберите действие:"
-        ),
+        Jinja("""
+<b>🔹 Главное меню 🔹</b>
+
+<code>💰 Баланс:      {{ balance }}</code>
+<code>📜 Подписка до: {{ subscription_end }}</code>
+<code>⏳ Осталось:     {{ days_left }} дн.</code>
+
+Выберите действие:
+        """),
         Column(
             Button(Jinja("👥 Мои кабинеты"), id="my_clients", on_click=on_my_clients),
             Button(Jinja("➕ Добавить кабинет"), id="add_client", on_click=on_add_client),

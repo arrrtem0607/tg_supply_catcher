@@ -1,5 +1,4 @@
 import operator
-import logging
 
 from aiogram import types
 from aiogram_dialog import Dialog, Window, ShowMode, StartMode, DialogManager
@@ -12,8 +11,9 @@ from database import get_orm
 from bot.utils.statesform import ManageClientStates, MainMenu, AddClientStates, SupplyStates
 from bot.utils.castom_scroll import sync_scroll, ManagedScroll
 from bot.enums.status_enums import Status
+from bot.utils.logger import setup_logger
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 orm_controller = get_orm()
 

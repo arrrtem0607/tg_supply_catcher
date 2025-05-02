@@ -1,9 +1,6 @@
 import aiohttp
-import asyncio
 from typing import Optional, List
-from datetime import datetime, timedelta
 from configurations.payments_config import PaymentsConfig
-
 
 class TochkaAPIClient:
     BASE_URL = "https://enter.tochka.com/uapi"
@@ -97,6 +94,61 @@ class TochkaAPIClient:
                 data = await resp.json()
                 return data.get("Data", {}).get("Customer", [])
 
+    async def create_webhook(self, url: str, events: list[str]) -> dict:
+        client_id = PaymentsConfig().get_client_id()
+        endpoint = f"{self.BASE_URL}/webhook/{self.API_VERSION}/{client_id}"
+        payload = {"webhooksList": events, "url": url}
+        async with aiohttp.ClientSession(headers=self.headers) as session:
+            async with session.put(endpoint, json=payload) as resp:
+                resp.raise_for_status()
+                return await resp.json()
+
+    async def edit_webhook(self, url: str, events: list[str]) -> dict:
+        client_id = PaymentsConfig().get_client_id()
+        endpoint = f"{self.BASE_URL}/webhook/{self.API_VERSION}/{client_id}"
+        payload = {"webhooksList": events, "url": url}
+        async with aiohttp.ClientSession(headers=self.headers) as session:
+            async with session.post(endpoint, json=payload) as resp:
+                resp.raise_for_status()
+                return await resp.json()
+
+    async def get_webhooks(self) -> dict:
+        client_id = PaymentsConfig().get_client_id()
+        endpoint = f"{self.BASE_URL}/webhook/{self.API_VERSION}/{client_id}"
+        async with aiohttp.ClientSession(headers=self.headers) as session:
+            async with session.get(endpoint) as resp:
+                resp.raise_for_status()
+                return await resp.json()
+
+    async def delete_webhook(self) -> dict:
+        client_id = PaymentsConfig().get_client_id()
+        endpoint = f"{self.BASE_URL}/webhook/{self.API_VERSION}/{client_id}"
+        async with aiohttp.ClientSession(headers=self.headers) as session:
+            async with session.delete(endpoint) as resp:
+                resp.raise_for_status()
+                return await resp.json()
+
+    async def test_webhook(self, webhook_type: str) -> dict:
+        client_id = PaymentsConfig().get_client_id()
+        endpoint = f"{self.BASE_URL}/webhook/{self.API_VERSION}/{client_id}/test_send"
+        payload = {"webhookType": webhook_type}
+        async with aiohttp.ClientSession(headers=self.headers) as session:
+            async with session.post(endpoint, json=payload) as resp:
+                resp.raise_for_status()
+                return await resp.json()
+
+    async def setup_webhook(self, url: str):
+        client_id = PaymentsConfig().get_client_id()
+        endpoint = f"{self.BASE_URL}/webhook/{self.API_VERSION}/{client_id}"
+        payload = {
+            "webhooksList": ["acquiringInternetPayment"],
+            "url": url
+        }
+        async with aiohttp.ClientSession(headers=self.headers) as session:
+            async with session.put(endpoint, json=payload) as resp:
+                resp.raise_for_status()
+                return await resp.json()
+
 
 async def get_retailers_safe(client: TochkaAPIClient):
     print("➡️ Получаем список торговых точек через API...")
@@ -122,71 +174,3 @@ async def get_retailers_safe(client: TochkaAPIClient):
             print("❌ Метод не поддерживается. Обратись в поддержку Точки.")
         else:
             raise
-
-
-if __name__ == "__main__":
-    async def test_all():
-        config = PaymentsConfig()
-        client = TochkaAPIClient(config)
-
-        # ✅ Получаем список клиентов
-        print("➡️ Получаем список клиентов:")
-        try:
-            customers = await client.get_customers()
-            print("✔️ Найдено клиентов:", len(customers))
-            for i, c in enumerate(customers):
-                print(f"\n🔹 Клиент #{i + 1}")
-                print("customerCode:", c.get("customerCode"))
-                print("name:", c.get("name"))
-                print("type:", c.get("customerType"))
-                print("isActive:", c.get("isActive"))
-        except aiohttp.ClientResponseError as e:
-            print(f"❌ Ошибка при получении клиентов: {e.status} {e.message}")
-
-        # ✅ Получаем список торговых точек
-        await get_retailers_safe(client)
-
-        # ✅ Создание платёжной ссылки
-        print("\n➡️ Создаём платёжную ссылку...")
-        payload = {
-            "customerCode": config.get_customer_code(),
-            "amount": "10.00",
-            "purpose": "Тестовая оплата",
-            "redirectUrl": "https://example.com/success",
-            "failRedirectUrl": "https://example.com/fail",
-            "paymentMode": [
-                                "sbp",
-                                "card",
-                                "tinkoff"
-                            ],
-            "saveCard": True,
-            "consumerId": config.get_consumer_id(),
-            "merchantId": config.get_merchant_id(),
-            "ttl": 168 * 60  # 7 дней
-        }
-        try:
-            link = await client.create_payment_link(payload)
-            print("✔️ Ссылка на оплату:", link)
-        except aiohttp.ClientResponseError as e:
-            print(f"❌ Ошибка при создании ссылки: {e.status} {e.message}")
-
-        # ✅ Получаем список операций
-        print("\n➡️ Получаем список операций за последние сутки...")
-        today = datetime.now()
-        yesterday = today - timedelta(days=1)
-        try:
-            ops = await client.list_payment_operations(
-                from_date=yesterday.strftime('%Y-%m-%d'),
-                to_date=today.strftime('%Y-%m-%d'),
-                status="CREATED"
-            )
-            print("✔️ Найдено операций:", len(ops))
-            if ops:
-                op_id = ops[0]["operationId"]
-                print("\n➡️ Статус первой операции:")
-                status = await client.get_payment_status(op_id)
-                print(f"✔️ Operation ID {op_id} статус:", status)
-        except aiohttp.ClientResponseError as e:
-            print(f"❌ Ошибка при получении операций: {e.status} {e.message}")
-
-    asyncio.run(test_all())

@@ -1,8 +1,8 @@
-import logging
 import aiohttp
-import uuid
 
-logger = logging.getLogger(__name__)
+from bot.utils.logger import setup_logger
+
+logger = setup_logger(__name__)
 
 STATUS_TRANSLATION = {
     "RECEIVED": "📥 Получено",
