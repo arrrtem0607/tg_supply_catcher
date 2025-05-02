@@ -44,4 +44,6 @@ async def initialize_database():
 
     # Создание таблиц
     await orm_controller.create_tables()
-    logger.info("Таблицы инициализированы")
+    await orm_controller.seed_tariffs()
+
+    logger.info("Таблицы инициализированы, тарифы добавлены")

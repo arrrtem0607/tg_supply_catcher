@@ -19,18 +19,17 @@ async def start_handler(message: Message, dialog_manager: DialogManager):
 
     if response.get("message") == "Пользователь уже зарегистрирован":
         msg_text = "Привет! Ты уже зарегистрирован в системе 🚀"
-        show_menu = True  # Показываем меню
+        show_menu = True
     elif "error" in response:
         msg_text = f"❌ Ошибка регистрации: {response['error']}"
-        show_menu = False  # Не показываем меню
+        show_menu = False
     else:
         msg_text = "Привет! Ты зарегистрирован в системе 🎉"
-        show_menu = True  # Показываем меню
+        show_menu = True
+        await orm_controller.balance.add_balance(user_id, 0)  # Инициализируем баланс
 
-    # Отправляем сообщение пользователю
     await message.answer(msg_text)
 
-    # Если не было ошибки, запускаем стартовое меню
     if show_menu:
         await dialog_manager.start(state=MainMenu.MAIN_MENU, show_mode=ShowMode.DELETE_AND_SEND)
 

@@ -69,6 +69,8 @@ class Supply(Base):
     warehouse_address: Mapped[str] = mapped_column(String(255), nullable=True)
     box_type: Mapped[str] = mapped_column(String(50), nullable=True)
 
+    price: Mapped[int] = mapped_column(Integer, nullable=True)
+
     user = relationship("User", back_populates="supplyes", overlaps="client,supplyes")
     client = relationship("Client", back_populates="supplyes", overlaps="user,supplyes")
 
@@ -93,6 +95,7 @@ class Supply(Base):
             "warehouse_name": self.warehouse_name,
             "warehouse_address": self.warehouse_address,
             "box_type": self.box_type,
+            "price": self.price,
 
             "client_name": self.client.name if self.client else None,
             "user_name": self.user.username if self.user else None

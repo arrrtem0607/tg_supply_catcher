@@ -4,7 +4,7 @@ from sqlalchemy.orm import joinedload
 from aiohttp import ClientSession
 
 from database.entities.core import Base, Database
-from database.entities.models import User, Client, Supply, Subscription
+from database.entities.models import User, Client, Supply, Subscription, Tariff
 from bot.enums.status_enums import Status
 from bot.utils.mpwave_api import MPWAVEAPI
 from bot.utils.wildberries_api import WildberriesAPI
@@ -73,6 +73,21 @@ class ORMController:
                 logger.info("✅ Таблицы успешно созданы!")
             else:
                 logger.info("✅ Структура БД актуальна, изменений не требуется.")
+
+    @session_manager
+    async def seed_tariffs(self, session):
+        existing = await session.execute(select(Tariff))
+        if existing.scalars().first():
+            logger.info("📦 Тарифы уже существуют — пропускаем инициализацию.")
+            return
+
+        tariffs = [
+            Tariff(name="Месячная подписка", price=25000, duration_days=30, is_subscription=True),
+            Tariff(name="Разовый отлов (короб)", price=1000, duration_days=None, is_subscription=False),
+            Tariff(name="Разовый отлов (паллет)", price=1500, duration_days=None, is_subscription=False),
+        ]
+        session.add_all(tariffs)
+        logger.info("✅ Добавлены стартовые тарифы")
 
     @session_manager
     async def add_client(self, session, tg_id: int, client_id: str, name: str, cookies: str):
@@ -386,3 +401,8 @@ class ORMController:
         )
         result = await session.execute(stmt)
         return result.scalars().first()
+
+    @session_manager
+    async def get_all_tariffs(self, session):
+        result = await session.execute(select(Tariff))
+        return result.scalars().all()

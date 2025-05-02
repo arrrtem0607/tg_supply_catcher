@@ -11,7 +11,7 @@ from configurations import get_config
 from bot import get_all_routers
 from payments.service import router as webhook_router
 from bot.utils.logger import setup_logger
-
+from bot.middlewares.db_middleware import initialize_database
 
 app = FastAPI()
 app.include_router(webhook_router)
@@ -19,7 +19,6 @@ logger = setup_logger(__name__)
 
 
 async def run_fastapi():
-    config = get_config()
     uvicorn_config = uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="info")
     server = uvicorn.Server(uvicorn_config)
     await server.serve()
@@ -37,6 +36,10 @@ async def run_bot():
 
     dp.include_router(await get_all_routers())
     setup_dialogs(dp)
+
+    # ✅ Теперь инициализируем базу через `initialize_database()`
+    await initialize_database()
+    logger.info("✅ Таблицы проверены/созданы в базе данных!")
 
     logger.info("✅ Бот успешно запущен")
     await dp.start_polling(bot)

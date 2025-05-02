@@ -17,10 +17,12 @@ api = TochkaAPIClient(PaymentsConfig())
 async def get_balance_data(dialog_manager: DialogManager, **kwargs):
     tg_id = dialog_manager.event.from_user.id
     balance = await orm_controller.balance.get_balance(tg_id)
+    tariffs = await orm_controller.get_all_tariffs()
     return {
         "balance": balance,
         "payment_link": dialog_manager.dialog_data.get("payment_link"),
-        "amount": dialog_manager.dialog_data.get("amount")
+        "amount": dialog_manager.dialog_data.get("amount"),
+        "tariffs": tariffs,
     }
 
 amount_options = [("1 000₽", "1000"), ("5 000₽", "5000"), ("25 000₽", "25000")]
@@ -34,8 +36,8 @@ async def on_custom_amount_entered(
     dialog_manager: DialogManager,
     value: str,
 ):
-    if not value.isdigit() or int(value) < 100:
-        await message.answer("Введите сумму от 100₽", show_alert=True)
+    if not value.isdigit() or int(value) < 1:
+        await message.answer("Введите сумму от 1₽", show_alert=True)
         return
     await create_payment_and_proceed(message.from_user.id, value, dialog_manager)
 
@@ -68,7 +70,6 @@ async def on_cancel_payment(callback: CallbackQuery, button: Button, manager: Di
     await callback.answer("❌ Оплата отменена")
     await manager.back()
 
-# --- Подписка ---
 async def on_subscribe_click(callback: CallbackQuery, button: Button, manager: DialogManager):
     user_id = callback.from_user.id
     balance = await orm_controller.balance.get_balance(user_id)
@@ -98,14 +99,15 @@ balance_dialog = Dialog(
         💰 <b>Ваш баланс:</b> <code>{{ balance }}₽</code>
 
         📦 <b>Тарифы и услуги:</b>
-        • 📆 Месячная подписка: <b>25 000₽</b>
-        • 📦 Коробная поставка: <b>1 000₽</b>
-        • 🏗️ Монопаллетная поставка: <b>1 500₽</b>
+        {% for tariff in tariffs %}
+        • {{ tariff.name }}: <b>{{ tariff.price }}₽</b>
+        {% endfor %}
 
         Выберите действие:
         """),
         Column(
-            Button(Const("💳 Пополнить баланс"), id="topup", on_click=lambda c, w, m: m.switch_to(BalanceStates.SELECT_AMOUNT)),
+            Button(Const("💳 Пополнить баланс"), id="topup",
+                   on_click=lambda c, w, m: m.switch_to(BalanceStates.SELECT_AMOUNT)),
             Button(Const("📆 Купить месячную подписку"), id="subscribe", on_click=on_subscribe_click),
             Button(Const("⬅️ Назад"), id="back", on_click=lambda c, w, m: m.start(MainMenu.MAIN_MENU)),
         ),

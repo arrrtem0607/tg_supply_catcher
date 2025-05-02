@@ -57,11 +57,11 @@ main_menu_dialog = Dialog(
 <b>🔹 Главное меню 🔹</b>
 
 <code>💰 Баланс:      {{ balance }}</code>
-<code>📜 Подписка до: {{ subscription_end }}</code>
-<code>⏳ Осталось:     {{ days_left }} дн.</code>
+<code>📜 Подписка до: {{ subscription_end or '—' }}</code>
+<code>⏳ Осталось:     {{ days_left or '—' }} дн.</code>
 
 Выберите действие:
-        """),
+            """),
         Column(
             Button(Jinja("👥 Мои кабинеты"), id="my_clients", on_click=on_my_clients),
             Button(Jinja("➕ Добавить кабинет"), id="add_client", on_click=on_add_client),
