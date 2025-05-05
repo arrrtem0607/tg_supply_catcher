@@ -6,8 +6,8 @@ from aiogram.types import CallbackQuery, Message
 from datetime import datetime, timedelta
 
 from bot.utils.statesform import MainMenu, BalanceStates
-from database import get_orm
-from payments.client import TochkaAPIClient
+from database.controller.orm_instance import get_orm
+from services.payments.client import TochkaAPIClient
 from configurations.payments_config import PaymentsConfig
 
 orm_controller = get_orm()

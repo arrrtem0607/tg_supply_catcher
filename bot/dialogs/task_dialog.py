@@ -7,7 +7,7 @@ from aiogram_dialog.widgets.text import Jinja, List, Format, Const
 from aiogram_dialog.widgets.input import TextInput
 from aiogram.types import CallbackQuery
 
-from database import get_orm
+from database.controller.orm_instance import get_orm
 from bot.utils.statesform import ManageClientStates, MainMenu, AddClientStates, SupplyStates
 from bot.utils.castom_scroll import sync_scroll, ManagedScroll
 from bot.enums.status_enums import Status

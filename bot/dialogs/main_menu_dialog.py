@@ -6,7 +6,7 @@ from aiogram_dialog.widgets.text import Jinja
 from bot.utils.statesform import MainMenu, BalanceStates, InfoStates, AddClientStates, ManageClientStates
 from aiogram_dialog import DialogManager
 from aiogram.types import CallbackQuery
-from database import get_orm
+from database.controller.orm_instance import get_orm
 
 orm_controller = get_orm()
 

@@ -9,7 +9,7 @@ from aiogram_dialog import setup_dialogs
 
 from configurations import get_config
 from bot import get_all_routers
-from payments.service import router as webhook_router
+from services.payments.service import router as webhook_router
 from bot.utils.logger import setup_logger
 from bot.middlewares.db_middleware import initialize_database
 
@@ -38,8 +38,8 @@ async def run_bot():
     setup_dialogs(dp)
 
     # ✅ Теперь инициализируем базу через `initialize_database()`
-    # await initialize_database()
-    # logger.info("✅ Таблицы проверены/созданы в базе данных!")
+    await initialize_database()
+    logger.info("✅ Таблицы проверены/созданы в базе данных!")
 
     logger.info("✅ Бот успешно запущен")
     await dp.start_polling(bot)

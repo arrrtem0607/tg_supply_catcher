@@ -9,7 +9,7 @@ from aiogram_dialog import DialogManager
 from aiogram.types import Message, CallbackQuery
 
 from bot.utils.statesform import AddClientStates, MainMenu
-from database import get_orm
+from database.controller.orm_instance import get_orm
 from bot.utils.wildberries_api import WildberriesAPI
 from bot.utils.validations import normalize_phone_number
 from bot.utils.logger import setup_logger

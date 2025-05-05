@@ -2,7 +2,7 @@ from aiogram import Router
 from aiogram.types import Message
 from aiogram.filters import CommandStart
 from aiogram_dialog import DialogManager, ShowMode
-from database import get_orm
+from database.controller.orm_instance import get_orm
 from bot.utils.statesform import MainMenu
 
 

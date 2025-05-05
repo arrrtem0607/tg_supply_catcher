@@ -5,7 +5,7 @@ from aiogram_dialog.widgets.kbd import Select, Button, ScrollingGroup, Back, Cal
 from aiogram_dialog.widgets.text import Jinja, Format, Const
 from aiogram_dialog import DialogManager
 from aiogram.types import CallbackQuery
-from database import get_orm
+from database.controller.orm_instance import get_orm
 from bot.utils.statesform import SupplyStates
 from bot.enums.status_enums import Status
 from bot.utils.logger import setup_logger
