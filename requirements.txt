@@ -51,6 +51,7 @@ starlette==0.46.1
 taskiq==0.11.17
 taskiq-dependencies==1.5.7
 taskiq-nats==0.5.1
+taskiq-redis==1.0.8
 typing_extensions==4.12.2
 urllib3==2.3.0
 uvicorn==0.34.2

@@ -3,7 +3,7 @@ from sqlalchemy import select
 from database.entities.models import ClientBalance
 from database.entities.core import Database
 from database.db_utils import session_manager
-from bot.utils.logger import setup_logger
+from services.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 

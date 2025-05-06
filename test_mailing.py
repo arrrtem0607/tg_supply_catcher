@@ -1,33 +1,25 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
 
-from database.entities.core import Database
-from database.entities.models import Mailing, MailingStatus
-from database.controller.mailing_controller import MailingController
-from services.delay_service.tasks import launch_mailing
+from database.controller.orm_instance import get_mailing_orm
+from services.utils.logger import setup_logger
 
-from bot.utils.logger import setup_logger
+logger = setup_logger(__name__)
 
-logger = setup_logger("test_mailing")
-
-db = Database()
-mailing_ctrl = MailingController(db)
 
 async def main():
-    async with db.session() as session:
-        # Создаём тестовую рассылку
-        new_mailing = Mailing(
-            text="🧪 Это тестовая рассылка",
-            scheduled_at=datetime.now(timezone.utc) + timedelta(seconds=10),
-            status=MailingStatus.SCHEDULED,
-        )
-        session.add(new_mailing)
-        await session.commit()
-        logger.info(f"📨 Тестовая рассылка создана: ID={new_mailing.id}")
+    orm = get_mailing_orm()
 
-        # Необязательно: сразу запускаем вручную (иначе подхватит планировщик)
-        await launch_mailing.kiq(str(new_mailing.id))
-        logger.info(f"🚀 launch_mailing.kiq вызван вручную")
+    scheduled_time = datetime.now(timezone.utc) + timedelta(seconds=10)
+
+    mailing = await orm.create_mailing(
+        text="📢 Это тестовая рассылка!",
+        scheduled_at=scheduled_time,
+        recipients_ids=None,  # можно указать список ID
+    )
+
+    logger.info(f"✅ Рассылка создана: {mailing.id} (отправка в {scheduled_time.isoformat()})")
+
 
 if __name__ == "__main__":
     asyncio.run(main())

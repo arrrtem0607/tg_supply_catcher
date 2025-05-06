@@ -5,12 +5,12 @@ from aiohttp import ClientSession
 
 from database.entities.core import Base, Database
 from database.entities.models import User, Client, Supply, Subscription, Tariff
-from bot.enums.status_enums import Status
-from bot.utils.mpwave_api import MPWAVEAPI
-from bot.utils.wildberries_api import WildberriesAPI
+from database.enums import Status
+from services.utils.mpwave_api import MPWAVEAPI
+from services.utils.wildberries_api import WildberriesAPI
 from database.controller.balance_controller import BalanceController
 from database.db_utils import session_manager
-from bot.utils.logger import setup_logger
+from services.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 

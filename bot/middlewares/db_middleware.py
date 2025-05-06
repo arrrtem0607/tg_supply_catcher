@@ -3,7 +3,7 @@ from typing import Callable, Awaitable, Dict, Any
 from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject
 from sqlalchemy.ext.asyncio import async_sessionmaker
-from bot.utils.logger import setup_logger
+from services.utils.logger import setup_logger
 
 # Настройка логгера
 logger = setup_logger(__name__)

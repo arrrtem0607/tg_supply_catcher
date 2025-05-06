@@ -2,7 +2,7 @@ from fastapi import APIRouter, Request, status
 from fastapi.responses import JSONResponse
 
 from database.controller.orm_instance import get_orm
-from bot.utils.logger import setup_logger
+from services.utils.logger import setup_logger
 
 router = APIRouter(prefix="/webhook/tochka")
 logger = setup_logger(__name__)

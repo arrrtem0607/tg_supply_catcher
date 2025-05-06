@@ -1,30 +1,25 @@
+# services/delay_service/scheduler.py
+
 from taskiq import TaskiqScheduler
-from taskiq.schedule_sources import AsyncScheduleSource
-from taskiq_nats import NatsBroker
+from taskiq_redis import RedisScheduleSource
+from taskiq_nats import PullBasedJetStreamBroker
 
-from services.delay_service.tasks import launch_mailing
-from bot.utils.logger import setup_logger
-from database.controller.mailing_controller import MailingController
-from database.entities.core import Database
+from services.delay_service import tasks
 
-logger = setup_logger(__name__)
+# Инициализация брокера JetStream
+broker = PullBasedJetStreamBroker(
+    servers="nats://localhost:4222",
+    queue="mailing_tasks",
+)
 
-broker = NatsBroker("nats://localhost:4222")
-db = Database()
-mailing_ctrl = MailingController(db)
+# Redis как источник отложенных задач
+redis_source = RedisScheduleSource("redis://localhost:6379/0")
 
-class MailingScheduleSource(AsyncScheduleSource):
-    async def get_current_schedules(self):
-        """
-        Планировщик запускает рассылки со статусом 'scheduled'
-        """
-        mailings = await mailing_ctrl.get_scheduled_mailings()
+# Планировщик, который знает, откуда брать задачи и куда их пихать
+scheduler = TaskiqScheduler(
+    broker=broker,
+    sources=[redis_source],
+)
 
-        schedules = []
-        for mailing in mailings:
-            logger.info(f"📅 Планировщик: найдено запланированное mailing_id={mailing.id}")
-            schedules.append(launch_mailing.with_args(str(mailing.id)))
-
-        return schedules
-
-scheduler = TaskiqScheduler(broker=broker, sources=[MailingScheduleSource()])
+# Обязательно импортируем задачи, чтобы они зарегистрировались
+from services.delay_service import tasks  # noqa

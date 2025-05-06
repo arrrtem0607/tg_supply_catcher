@@ -1,6 +1,6 @@
 import aiohttp
 
-from bot.utils.logger import setup_logger
+from services.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 

@@ -3,7 +3,7 @@ from typing import Callable, Awaitable, Dict, Any
 from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject, Message
 from configurations import get_config
-from bot.utils.logger import setup_logger
+from services.utils.logger import setup_logger
 
 # Настройка логгера
 logger = setup_logger(__name__)

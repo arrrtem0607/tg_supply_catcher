@@ -7,8 +7,8 @@ from aiogram_dialog import DialogManager
 from aiogram.types import CallbackQuery
 from database.controller.orm_instance import get_orm
 from bot.utils.statesform import SupplyStates
-from bot.enums.status_enums import Status
-from bot.utils.logger import setup_logger
+from database.enums import Status
+from services.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 

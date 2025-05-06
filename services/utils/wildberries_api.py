@@ -8,7 +8,7 @@ from aiohttp import ClientResponseError, ClientSession
 
 from datetime import datetime, timedelta
 from configurations.reading_env import Env
-from bot.utils.logger import setup_logger
+from services.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 

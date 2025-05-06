@@ -1,17 +1,25 @@
 import uuid
-import enum
 from datetime import datetime
 
 from sqlalchemy import (
     Integer, Text, BigInteger, DateTime, ForeignKey, func, Enum, ARRAY,
-    TIMESTAMP, String, Boolean, PrimaryKeyConstraint, ForeignKeyConstraint
+    TIMESTAMP, String, Boolean, PrimaryKeyConstraint, ForeignKeyConstraint,
+    Table, Column
 )
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID
 
 from database.entities.core import Base
-from bot.enums.status_enums import Status
+from database.enums.status_enums import Status
+from database.enums.mailing_status_enums import MailingStatus
 
+mailing_users = Table(
+    "mailing_users",
+    Base.metadata,
+    Column("mailing_id", UUID(as_uuid=True), ForeignKey("public.mailings.id", ondelete="CASCADE"), primary_key=True),
+    Column("user_id", BigInteger, ForeignKey("public.users.tg_id", ondelete="CASCADE"), primary_key=True),
+    schema="public"
+)
 
 class User(Base):
     __tablename__ = "users"
@@ -26,6 +34,12 @@ class User(Base):
     clients = relationship("Client", back_populates="user")
     subscriptions = relationship("Subscription", back_populates="user")
     supplyes = relationship("Supply", back_populates="user", overlaps="client,supplyes")
+
+    mailings = relationship(
+        "Mailing",
+        secondary=mailing_users,
+        back_populates="recipients"
+    )
 
 
 class Client(Base):
@@ -141,19 +155,11 @@ class ClientBalance(Base):
 
     user = relationship("User", backref="balance")
 
-class MailingStatus(str, enum.Enum):
-    SCHEDULED = "scheduled"
-    IN_PROGRESS = "in_progress"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
-
 class Mailing(Base):
     __tablename__ = "mailings"
     __table_args__ = {"schema": "public"}
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-
     text: Mapped[str] = mapped_column(Text, nullable=False)
     scheduled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -163,5 +169,13 @@ class Mailing(Base):
 
     status: Mapped[MailingStatus] = mapped_column(Enum(MailingStatus, name="mailing_status"), default=MailingStatus.SCHEDULED)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    # 👇 связь с пользователями
+    recipients = relationship(
+        "User",
+        secondary=mailing_users,
+        back_populates="mailings"
+    )
+
 
 

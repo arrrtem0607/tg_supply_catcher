@@ -10,8 +10,8 @@ from aiogram.types import CallbackQuery
 from database.controller.orm_instance import get_orm
 from bot.utils.statesform import ManageClientStates, MainMenu, AddClientStates, SupplyStates
 from bot.utils.castom_scroll import sync_scroll, ManagedScroll
-from bot.enums.status_enums import Status
-from bot.utils.logger import setup_logger
+from database.enums import Status
+from services.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 
@@ -88,7 +88,7 @@ async def get_supplies_list(dialog_manager: DialogManager, **kwargs):
     }
 
 async def get_active_catching_tasks(dialog_manager: DialogManager, **kwargs):
-    from bot.enums.status_enums import Status
+    from database.enums import Status
 
     client_id = dialog_manager.dialog_data.get("selected_client")
     tg_id = dialog_manager.event.from_user.id
