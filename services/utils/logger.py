@@ -8,7 +8,7 @@ LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 class TelegramLogHandler(logging.Handler):
     def __init__(self, token: str, chat_id: str, min_level: int = logging.ERROR):
-        super().__init__(level=logging.WARNING)
+        super().__init__(level=min_level)
         self.token = token
         self.chat_id = chat_id
         self.api_url = f"https://api.telegram.org/bot{self.token}/sendMessage"
@@ -39,6 +39,7 @@ def setup_logger(name: str = None, level: LogLevel = "INFO") -> logging.Logger:
     if "console" in log_outputs:
         handler = logging.StreamHandler(sys.stdout)
         handler.setFormatter(formatter)
+        handler.setLevel(level)
         logger.addHandler(handler)
 
     if "file" in log_outputs:
@@ -46,6 +47,7 @@ def setup_logger(name: str = None, level: LogLevel = "INFO") -> logging.Logger:
         os.makedirs(log_dir, exist_ok=True)
         file_handler = logging.FileHandler(f"{log_dir}/{name or 'app'}.log", mode="a", encoding="utf-8")
         file_handler.setFormatter(formatter)
+        file_handler.setLevel(level)
         logger.addHandler(file_handler)
 
     if "telegram" in log_outputs:
@@ -54,6 +56,7 @@ def setup_logger(name: str = None, level: LogLevel = "INFO") -> logging.Logger:
         if tg_token and tg_chat_id:
             tg_handler = TelegramLogHandler(token=tg_token, chat_id=tg_chat_id)
             tg_handler.setFormatter(formatter)
+            tg_handler.setLevel(level)
             logger.addHandler(tg_handler)
 
     return logger

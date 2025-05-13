@@ -46,24 +46,23 @@ class ORMController:
 
             logger.info(f"🔍 Используемая база данных: {self.db.async_engine.url.database}")
 
-            # ✅ Устанавливаем схему `public`
             await conn.run_sync(lambda c: c.execute(text("SET search_path TO public")))
 
             existing_tables = await conn.run_sync(sync_inspect)
             logger.info(f"📌 Существующие таблицы: {existing_tables}")
 
-            found_metadata_tables = list(Base.metadata.tables.keys())
+            found_metadata_tables = [
+                name.split(".")[-1]  # убираем 'public.' из 'public.users'
+                for name in Base.metadata.tables.keys()
+            ]
             logger.info(f"📂 Найденные таблицы в metadata: {found_metadata_tables}")
 
-            # Если есть существующие таблицы, но они не совпадают с метаданными
             if existing_tables and set(existing_tables) != set(found_metadata_tables):
                 logger.warning("⚠️ Обнаружены изменения в моделях! Пересоздаем таблицы...")
 
-                # ✅ Удаляем все таблицы
                 await conn.run_sync(Base.metadata.drop_all)
                 logger.info("🗑️ Все таблицы удалены!")
 
-                # ✅ Создаем их заново
                 await conn.run_sync(Base.metadata.create_all)
                 logger.info("✅ Таблицы успешно пересозданы!")
 
@@ -73,6 +72,20 @@ class ORMController:
                 logger.info("✅ Таблицы успешно созданы!")
             else:
                 logger.info("✅ Структура БД актуальна, изменений не требуется.")
+
+    async def drop_tables(self):
+        async with self.db.async_engine.begin() as conn:
+            await conn.run_sync(lambda c: c.execute(text("SET search_path TO public")))
+            await conn.run_sync(Base.metadata.drop_all)
+            logger.warning("🗑️ Все таблицы удалены вручную!")
+
+    async def truncate_tables(self):
+        async with self.db.async_engine.begin() as conn:
+            await conn.run_sync(lambda c: c.execute(text("SET search_path TO public")))
+            tables = Base.metadata.sorted_tables
+            for table in tables:
+                await conn.execute(text(f'TRUNCATE TABLE "{table.name}" RESTART IDENTITY CASCADE'))
+            logger.info("🧹 Все таблицы очищены (TRUNCATE).")
 
     @session_manager
     async def seed_tariffs(self, session):

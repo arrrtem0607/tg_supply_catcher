@@ -1,6 +1,10 @@
 import aiohttp
 from typing import Optional, List
+
 from configurations.payments_config import PaymentsConfig
+from services.utils.logger import setup_logger
+
+logger = setup_logger(__name__)
 
 class TochkaAPIClient:
     BASE_URL = "https://enter.tochka.com/uapi"
@@ -123,8 +127,12 @@ class TochkaAPIClient:
     async def delete_webhook(self) -> dict:
         client_id = PaymentsConfig().get_client_id()
         endpoint = f"{self.BASE_URL}/webhook/{self.API_VERSION}/{client_id}"
+        logger.info(f"🧹 Удаляем вебхук по адресу: {endpoint}")
         async with aiohttp.ClientSession(headers=self.headers) as session:
             async with session.delete(endpoint) as resp:
+                text = await resp.text()
+                logger.info(f"🔁 Response status: {resp.status}")
+                logger.info(f"🔁 Response text: {text}")
                 resp.raise_for_status()
                 return await resp.json()
 
@@ -141,14 +149,61 @@ class TochkaAPIClient:
         client_id = PaymentsConfig().get_client_id()
         endpoint = f"{self.BASE_URL}/webhook/{self.API_VERSION}/{client_id}"
         payload = {
-            "webhooksList": ["acquiringInternetPayment"],
+            "webhooksList": [
+                "acquiringInternetPayment",
+                "incomingPayment",
+                "outgoingPayment",
+                "incomingSbpPayment",
+                "acquiringInternetPayment",
+                "incomingSbpB2BPayment"
+            ],
             "url": url
         }
+
+        logger.info(f"📡 Регистрируем вебхук по адресу: {endpoint}")
+        logger.info(f"📤 Payload: {payload}")
+        logger.info(f"🧾 Headers: {self.headers}")
+
         async with aiohttp.ClientSession(headers=self.headers) as session:
             async with session.put(endpoint, json=payload) as resp:
+                text = await resp.text()
+                logger.info(f"🔁 Response status: {resp.status}")
+                logger.info(f"🔁 Response text: {text}")
                 resp.raise_for_status()
                 return await resp.json()
 
+    async def create_invoice(self, payload: dict) -> str:
+        url = f"{self.BASE_URL}/invoice/{self.API_VERSION}/bills"
+        async with aiohttp.ClientSession(headers=self.headers) as session:
+            async with session.post(url, json={"Data": payload}) as resp:
+                resp.raise_for_status()
+                data = await resp.json()
+                return data["Data"]["documentId"]
+
+    async def delete_invoice(self, customer_code: str, document_id: str) -> bool:
+        url = f"{self.BASE_URL}/invoice/{self.API_VERSION}/bills/{customer_code}/{document_id}"
+        async with aiohttp.ClientSession(headers=self.headers) as session:
+            async with session.delete(url) as resp:
+                resp.raise_for_status()
+                data = await resp.json()
+                return data["Data"].get("result", False)
+
+    async def send_invoice_to_email(self, customer_code: str, document_id: str, email: str) -> bool:
+        url = f"{self.BASE_URL}/invoice/{self.API_VERSION}/bills/{customer_code}/{document_id}/email"
+        payload = {"Data": {"email": email}}
+        async with aiohttp.ClientSession(headers=self.headers) as session:
+            async with session.post(url, json=payload) as resp:
+                resp.raise_for_status()
+                data = await resp.json()
+                return data["Data"].get("result", False)
+
+    async def get_invoice_payment_status(self, customer_code: str, document_id: str) -> Optional[str]:
+        url = f"{self.BASE_URL}/invoice/{self.API_VERSION}/bills/{customer_code}/{document_id}/payment-status"
+        async with aiohttp.ClientSession(headers=self.headers) as session:
+            async with session.get(url) as resp:
+                resp.raise_for_status()
+                data = await resp.json()
+                return data.get("Data", {}).get("paymentStatus")
 
 async def get_retailers_safe(client: TochkaAPIClient):
     print("➡️ Получаем список торговых точек через API...")
