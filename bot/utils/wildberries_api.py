@@ -6,7 +6,7 @@ import subprocess
 import json
 import requests
 from aiohttp import ClientResponseError, ClientSession
-
+import re
 from datetime import datetime, timedelta
 from configurations.reading_env import Env
 
@@ -141,18 +141,25 @@ class WildberriesAPI:
         task_answer = json.loads(json.loads(result.stdout))
         verify = requests.post(verify_url, json=task_answer)
         ret = json.loads(verify.text)["wb-captcha-short-token"]
+        print(ret)
         return ret
 
     def send_code(self):
+        print("Тут")
+        print("Тут")
+        print("Тут")
+        print("Тут")
+        print("Тут")
         captcha_token = self.get_captcha_token()
         code_url = "https://seller-auth.wildberries.ru/auth/v2/code/wb-captcha"
         payload = {
             "phone_number": self.phone_number,
             "captcha_token": captcha_token
         }
+        print(captcha_token)
         response = self.session.post(code_url, json=payload)
         logger.info("🔐 Запрос кода: %s %s", response.status_code, response.text)
-
+        print("🔐 Запрос кода: %s %s", response.status_code, response.text)
         if not response.ok:
             return False, "❌ Ошибка запроса кода."
 
@@ -210,23 +217,34 @@ class WildberriesAPI:
 
         # Достаём wbx-validation-key
         validation_key = None
+        refresh_token = None
         if set_cookie_header:
             try:
-                cookies_parts = set_cookie_header.split(",")
+                cookies_parts = re.split(r'[;,]\s*', set_cookie_header)
+                print(cookies_parts)
+                logger.info(f"cookies_parts: {cookies_parts}")
                 for part in cookies_parts:
                     if "wbx-validation-key=" in part:
-                        validation_key = part.strip().split(";", 1)[0]
+                        validation_key = part.strip().split("=", 1)[1]
                         logger.info(f"🔑 Найден wbx-validation-key: {validation_key}")
-                        break
+                    if "wbx-refresh=" in part:
+                        refresh_token = part.strip().split("=", 1)[1]
+                        logger.info(f"🔑 Найден wbx-refresh: {refresh_token}")
                 else:
                     logger.warning("⚠️ wbx-validation-key не найден в заголовках Set-Cookie.")
             except Exception as e:
                 logger.exception("❌ Ошибка при разборе Set-Cookie")
-
+        print({
+            "json": data,
+            "cookies": self.session.cookies.get_dict(),
+            "wbx_validation_key": validation_key,
+            'refresh_token': refresh_token,
+        })
         return {
             "json": data,
             "cookies": self.session.cookies.get_dict(),
             "wbx_validation_key": validation_key,
+            'refresh_token': refresh_token,
         }
 
     async def validate_token(self, token: str, cookie_string: str, session: ClientSession):
