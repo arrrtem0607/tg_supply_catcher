@@ -16,7 +16,7 @@ STATUS_TRANSLATION = {
 }
 
 class MPWAVEAPI:
-    BASE_URL = "http://127.0.0.1:8001"
+    BASE_URL = "https://waveapitest.ru"
 
     @staticmethod
     async def register_user_api(tg_id: int):
@@ -32,7 +32,7 @@ class MPWAVEAPI:
                 return None
 
     @staticmethod
-    async def register_client_api(tg_id: int, client_id: str, name: str, cookies: str) -> dict:
+    async def register_client_api(tg_id: int, client_id: str, name: str, cookies: str, refresh_token: str) -> dict:
         url = f"{MPWAVEAPI.BASE_URL}/catcher/register/client"
         async with aiohttp.ClientSession() as session:
             try:
@@ -42,7 +42,8 @@ class MPWAVEAPI:
                     params={"user_id": tg_id,
                             "client_id": client_id,
                             "name": name,
-                            "cookies": cookies},
+                            "cookies": cookies,
+                            "refresh_token": refresh_token},
                     timeout=10,
                 )
                 response.raise_for_status()

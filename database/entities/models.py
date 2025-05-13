@@ -53,6 +53,7 @@ class Client(Base):
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("public.users.tg_id"), nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     cookies: Mapped[str] = mapped_column(String, nullable=False)
+    refresh_token: Mapped[str] = mapped_column(String, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     user = relationship("User", back_populates="clients")

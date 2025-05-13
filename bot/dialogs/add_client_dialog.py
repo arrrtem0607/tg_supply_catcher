@@ -76,12 +76,14 @@ async def on_sms_code_entered(
         cookies_dict = result["cookies"]
         access_token = result["json"]["payload"]["access_token"]
         validation_key = result["wbx_validation_key"]
+        refresh_token = result["refresh_token"]
 
         cookie_string = f"WBTokenV3={access_token}"
         if validation_key:
             cookie_string += f";wbx-validation-key={validation_key}"
             dialog_manager.dialog_data["cookie_string"] = cookie_string
-
+        if refresh_token:
+            dialog_manager.dialog_data["refresh_token"] = refresh_token
         async with aiohttp.ClientSession() as session:
             api = WildberriesAPI()
             raw_suppliers = await api.get_suppliers(cookie_string, session)
@@ -131,11 +133,12 @@ async def on_add_selected(callback: CallbackQuery, button: Button, manager: Dial
             return
 
         cookie_string = manager.dialog_data.get("cookie_string")
+        refresh_token = manager.dialog_data.get("refresh_token")
         if not cookie_string:
             await callback.message.answer("❌ Ошибка: отсутствует cookie_string.")
             return
 
-        await register_suppliers(selected_ids, cookie_string, tg_id, suppliers_data)
+        await register_suppliers(selected_ids, cookie_string, tg_id, suppliers_data, refresh_token)
         await callback.message.answer("✅ Выбранные поставщики зарегистрированы.")
         await manager.start(state=MainMenu.MAIN_MENU, show_mode=ShowMode.DELETE_AND_SEND)
 
@@ -152,13 +155,14 @@ async def on_add_all(callback: CallbackQuery, button: Button, manager: DialogMan
 
         all_ids = [s[1] for s in suppliers]
         cookie_string = manager.dialog_data.get("cookie_string")
+        refresh_token = manager.dialog_data.get("refresh_token")
         if not cookie_string:
             await callback.message.answer("❌ Ошибка: отсутствует cookie_string.")
             return
 
         tg_id = callback.from_user.id
 
-        await register_suppliers(all_ids, cookie_string, tg_id, suppliers)
+        await register_suppliers(all_ids, cookie_string, tg_id, suppliers, refresh_token)
         await callback.message.answer("✅ Все поставщики зарегистрированы.")
         await manager.start(state=MainMenu.MAIN_MENU, show_mode=ShowMode.DELETE_AND_SEND)
 
@@ -171,7 +175,8 @@ async def register_suppliers(
     base_cookie: str,
     tg_id: int,
     suppliers_data: list[tuple[str, str]],
-):
+    refresh_token: str,
+    ):
     for supplier_id in selected_ids:
         name = next((n for n, sid in suppliers_data if sid == supplier_id), None)
         if not name:
@@ -193,6 +198,7 @@ async def register_suppliers(
             client_id=supplier_id,
             name=name,
             cookies=supplier_cookie,
+            refresh_token=refresh_token,
         )
 
 add_client_dialog = Dialog(
