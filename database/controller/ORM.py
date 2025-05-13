@@ -103,17 +103,20 @@ class ORMController:
         logger.info("✅ Добавлены стартовые тарифы")
 
     @session_manager
-    async def add_client(self, session, tg_id: int, client_id: str, name: str, cookies: str):
+    async def add_client(self, session, tg_id: int, client_id: str, name: str, cookies: str, refresh_token: str):
         # Проверка по составному ключу
         stmt = select(Client).where(Client.client_id == client_id, Client.user_id == tg_id)
+        print("Добавляем")
         if (await session.execute(stmt)).scalars().first():
             return  # уже существует
 
+        print({'client_id': client_id,'user_id': tg_id,'name': name,'cookies': cookies,'refresh_token': refresh_token})
         session.add(Client(
             client_id=client_id,
             user_id=tg_id,
             name=name,
-            cookies=cookies
+            cookies=cookies,
+            refresh_token=refresh_token
         ))
 
     @session_manager
@@ -222,7 +225,7 @@ class ORMController:
             return {"error": "Внутренняя ошибка при регистрации пользователя"}
 
     @session_manager
-    async def register_client(self, session, tg_id: int, client_id: str, name: str, cookies: str):
+    async def register_client(self, session, tg_id: int, client_id: str, name: str, cookies: str, refresh_token: str):
         existing_client = await self.get_client_by_name(tg_id, name)
         if existing_client:
             return {"error": "Кабинет уже зарегистрирован"}
@@ -232,11 +235,11 @@ class ORMController:
             if not is_valid:
                 return {"error": "Невалидные cookies. Проверьте и попробуйте снова."}
 
-        api_result = await self.api.register_client_api(tg_id, client_id, name, cookies)
+        api_result = await self.api.register_client_api(tg_id, client_id, name, cookies, refresh_token)
         if "error" in api_result:
             return {"error": api_result["error"]}
 
-        await self.add_client(tg_id, client_id, name, cookies)
+        await self.add_client(tg_id, client_id, name, cookies, refresh_token)
         return {"message": "Кабинет зарегистрирован", "client_id": client_id}
 
     @session_manager
