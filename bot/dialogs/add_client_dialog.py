@@ -1,5 +1,6 @@
 import operator
 import aiohttp
+import requests
 
 from aiogram_dialog import Dialog, Window, ShowMode
 from aiogram_dialog.widgets.kbd import Button, Row, Column, Multiselect, ScrollingGroup, ManagedMultiselect
@@ -9,13 +10,10 @@ from aiogram_dialog import DialogManager
 from aiogram.types import Message, CallbackQuery
 
 from bot.utils.statesform import AddClientStates, MainMenu
-from database.controller.orm_instance import get_orm
-from services.utils.wildberries_api import WildberriesAPI
 from bot.utils.validations import normalize_phone_number
 from services.utils.logger import setup_logger
 
-
-orm_controller = get_orm()
+BACKEND_URL = "https://waveapitest.ru"
 logger = setup_logger(__name__)
 
 #____________________________
@@ -31,15 +29,16 @@ async def on_phone_entered(
     logger.info("📡 Отправка запроса на получение SMS-кода...")
 
     try:
-        api = WildberriesAPI(phone_number=phone)
-        success, error_msg = await api.send_code()
-        if success:
+        res = requests.post(url=BACKEND_URL + "/catcher/send_code", params={'phone_number': phone})
+        if res.status_code == 200:
             dialog_manager.dialog_data["phone_number"] = phone
-            dialog_manager.dialog_data["sticker"] = api.sticker  # 🔥 сохраняем только sticker
+            dialog_manager.dialog_data["sticker"] = res.json()["payload"]['sticker']
             await dialog_manager.switch_to(AddClientStates.ENTER_SMS_CODE, show_mode=ShowMode.DELETE_AND_SEND)
+        elif res.status_code == 420:
+            await message.answer(res.json()["error"])
         else:
-            logger.warning(f"⚠️ Не удалось отправить код: {error_msg}")
-            await message.answer(error_msg)
+            logger.warning(f"⚠️ Не удалось отправить код: {res.status_code} {res.text}")
+            await message.answer(f"{res.status_code} {res.text}")
     except Exception as e:
         logger.exception("❌ Ошибка при отправке SMS-кода")
         await message.answer(f"❌ Ошибка при отправке кода: {str(e)}")
@@ -58,8 +57,6 @@ async def on_sms_code_entered(
         widget: ManagedTextInput[str],
         dialog_manager: DialogManager,
         code: str):
-    logger.info(f"📨 Введён SMS-код: {code}")
-
     phone = dialog_manager.dialog_data.get("phone_number")
     sticker = dialog_manager.dialog_data.get("sticker")
 
@@ -67,37 +64,18 @@ async def on_sms_code_entered(
         await message.answer("⚠️ Ошибка: данные утеряны. Попробуйте сначала.")
         return
 
-    api = WildberriesAPI(phone_number=phone)
-    api.sticker = sticker
-
     try:
-        result = api.authorize(code)
-
-        cookies_dict = result["cookies"]
-        access_token = result["json"]["payload"]["access_token"]
-        validation_key = result["wbx_validation_key"]
-        refresh_token = result["refresh_token"]
-
-        cookie_string = f"WBTokenV3={access_token}"
-        if validation_key:
-            cookie_string += f";wbx-validation-key={validation_key}"
-            dialog_manager.dialog_data["cookie_string"] = cookie_string
-        if refresh_token:
-            dialog_manager.dialog_data["refresh_token"] = refresh_token
-        async with aiohttp.ClientSession() as session:
-            api = WildberriesAPI()
-            raw_suppliers = await api.get_suppliers(cookie_string, session)
-
-            dialog_manager.dialog_data["raw_suppliers_response"] = raw_suppliers
-            dialog_manager.dialog_data["suppliers_data"] = [
-                (supplier["name"], supplier["id"])
-                for supplier in raw_suppliers[0]["result"]["suppliers"]
-            ]
-
-        await dialog_manager.switch_to(AddClientStates.SELECT_CLIENTS, show_mode=ShowMode.DELETE_AND_SEND)
+        res = requests.post(url=BACKEND_URL + "/catcher/authorize", params={'phone': phone, 'sticker': sticker, 'code': code, 'user_id': dialog_manager.event.from_user.id})
+        if res.status_code == 200:
+            await dialog_manager.start(MainMenu.MAIN_MENU, show_mode=ShowMode.DELETE_AND_SEND)
+        else:
+            logger.warning(f"⚠️ Не удалось отправить код: {res.status_code} {res.text}")
+            await message.answer(f"Произошла ошибка при отправке кода. Пройдите авторизацию еще раз")
+            await dialog_manager.switch_to(AddClientStates.ENTER_PHONE, show_mode=ShowMode.DELETE_AND_SEND)
     except Exception as e:
-        logger.exception("❌ Ошибка авторизации")
-        await message.answer(f"❌ Ошибка авторизации: {str(e)}")
+        logger.exception("❌ Ошибка при отправке SMS-кода")
+        await dialog_manager.switch_to(AddClientStates.ENTER_PHONE, show_mode=ShowMode.DELETE_AND_SEND)
+        #await message.answer(f"❌ Ошибка при отправке кода: {str(e)}")
 
 async def on_sms_code_error(
     message: Message,
@@ -108,98 +86,6 @@ async def on_sms_code_error(
     logger.warning("🚫 Ошибка ввода авторизационного кода")
     await message.answer("⚠️ Ошибка кода, попробуйте еще раз")
     await dialog_manager.switch_to(AddClientStates.ENTER_PHONE, show_mode=ShowMode.DELETE_AND_SEND)
-
-async def get_suppliers_data(dialog_manager: DialogManager, **kwargs):
-    # Предположим, что результат запроса к API уже сохранён в dialog_manager или передаётся через kwargs
-    raw_data = dialog_manager.dialog_data.get("raw_suppliers_response")
-
-    suppliers_raw = raw_data[0]["result"]["suppliers"]
-    suppliers = [(supplier["name"], supplier["id"]) for supplier in suppliers_raw]
-
-    return {
-        "suppliers": suppliers,
-        "count": len(suppliers),
-    }
-
-async def on_add_selected(callback: CallbackQuery, button: Button, manager: DialogManager):
-    try:
-        multiselect: ManagedMultiselect = manager.find("m_suppliers")
-        selected_ids = multiselect.get_checked()
-
-        tg_id = callback.from_user.id
-        suppliers_data = manager.dialog_data.get("suppliers_data", [])
-        if not selected_ids:
-            await callback.message.answer("⚠️ Вы не выбрали ни одного поставщика.")
-            return
-
-        cookie_string = manager.dialog_data.get("cookie_string")
-        refresh_token = manager.dialog_data.get("refresh_token")
-        if not cookie_string:
-            await callback.message.answer("❌ Ошибка: отсутствует cookie_string.")
-            return
-
-        await register_suppliers(selected_ids, cookie_string, tg_id, suppliers_data, refresh_token)
-        await callback.message.answer("✅ Выбранные поставщики зарегистрированы.")
-        await manager.start(state=MainMenu.MAIN_MENU, show_mode=ShowMode.DELETE_AND_SEND)
-
-    except Exception as e:
-        logger.exception("❌ Ошибка при добавлении выбранных поставщиков")
-        await callback.message.answer(f"❌ Ошибка: {str(e)}")
-
-async def on_add_all(callback: CallbackQuery, button: Button, manager: DialogManager):
-    try:
-        suppliers = manager.dialog_data.get("suppliers_data", [])
-        if not suppliers:
-            await callback.message.answer("❌ Список поставщиков пуст.")
-            return
-
-        all_ids = [s[1] for s in suppliers]
-        cookie_string = manager.dialog_data.get("cookie_string")
-        refresh_token = manager.dialog_data.get("refresh_token")
-        if not cookie_string:
-            await callback.message.answer("❌ Ошибка: отсутствует cookie_string.")
-            return
-
-        tg_id = callback.from_user.id
-
-        await register_suppliers(all_ids, cookie_string, tg_id, suppliers, refresh_token)
-        await callback.message.answer("✅ Все поставщики зарегистрированы.")
-        await manager.start(state=MainMenu.MAIN_MENU, show_mode=ShowMode.DELETE_AND_SEND)
-
-    except Exception as e:
-        logger.exception("❌ Ошибка при добавлении всех поставщиков")
-        await callback.message.answer(f"❌ Ошибка: {str(e)}")
-
-async def register_suppliers(
-    selected_ids: list[str],
-    base_cookie: str,
-    tg_id: int,
-    suppliers_data: list[tuple[str, str]],
-    refresh_token: str,
-    ):
-    for supplier_id in selected_ids:
-        name = next((n for n, sid in suppliers_data if sid == supplier_id), None)
-        if not name:
-            logger.warning(f"⚠️ Не найдено имя для поставщика {supplier_id}")
-            continue
-
-        # 👇 Дополняем куки
-        supplier_cookie = (
-            f"{base_cookie};"
-            f"x-supplier-id={supplier_id};"
-            f"x-supplier-id-external={supplier_id}"
-        )
-
-        logger.info(f"📦 Регистрируем поставщика: {supplier_id} ({name})")
-        logger.debug(f"🔐 Полный cookie_string: {supplier_cookie}")
-
-        await orm_controller.register_client(
-            tg_id=tg_id,
-            client_id=supplier_id,
-            name=name,
-            cookies=supplier_cookie,
-            refresh_token=refresh_token,
-        )
 
 add_client_dialog = Dialog(
     Window(
@@ -249,29 +135,4 @@ add_client_dialog = Dialog(
         state=AddClientStates.ENTER_SMS_CODE,
         parse_mode="HTML",
     ),
-    Window(
-        Const("📦 Выберите поставщиков из списка ниже или нажмите 'Добавить всех'"),
-        ScrollingGroup(
-            Multiselect(
-                checked_text=Format("✓ {item[0]}"),
-                unchecked_text=Format("{item[0]}"),
-                id="m_suppliers",
-                item_id_getter=operator.itemgetter(1),
-                items="suppliers",
-            ),
-            id="suppliers_scroll",
-            width=1,
-            height=5,
-        ),
-        Row(
-            Button(Const("✅ Добавить выбранных"), id="add_selected", on_click=on_add_selected),
-            Button(Const("📋 Добавить всех"), id="add_all", on_click=on_add_all),
-        ),
-        Row(
-            Button(Const("🔙 В главное меню"), id="to_main", on_click=lambda c, w, m: m.start(MainMenu.MAIN_MENU)),
-        ),
-        state=AddClientStates.SELECT_CLIENTS,
-        getter=get_suppliers_data,
-        parse_mode="HTML",
-    )
 )
