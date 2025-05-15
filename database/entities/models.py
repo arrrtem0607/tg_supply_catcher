@@ -63,6 +63,7 @@ class Client(Base):
 class Supply(Base):
     __tablename__ = "supplyes"
     __table_args__ = (
+        PrimaryKeyConstraint("preorder_id", "user_id", name="pk_supplyes"),
         ForeignKeyConstraint(
             ["client_id", "user_id"],
             ["public.clients.client_id", "public.clients.user_id"]
@@ -70,11 +71,13 @@ class Supply(Base):
         {"schema": "public"},
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    # Уникальный ID поставки (больше не PK)
+    preorder_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    supply_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    status: Mapped[Status] = mapped_column(Enum(Status), default=Status.RECEIVED)
 
     client_id: Mapped[str] = mapped_column(String(100), nullable=False)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("public.users.tg_id"), nullable=False)
-    status: Mapped[Status] = mapped_column(Enum(Status), default=Status.RECEIVED)
 
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP, server_default=func.now(), server_onupdate=func.now(), nullable=True)
@@ -85,7 +88,6 @@ class Supply(Base):
     skip_dates: Mapped[list[datetime]] = mapped_column(ARRAY(DateTime), nullable=True)
     coefficient: Mapped[float] = mapped_column(Integer, nullable=True)
 
-    # Новые поля
     warehouse_name: Mapped[str] = mapped_column(String(255), nullable=True)
     warehouse_address: Mapped[str] = mapped_column(String(255), nullable=True)
     box_type: Mapped[str] = mapped_column(String(50), nullable=True)
@@ -96,31 +98,27 @@ class Supply(Base):
     client = relationship("Client", back_populates="supplyes", overlaps="user,supplyes")
 
     def to_dict(self):
-        """Преобразует объект в JSON-совместимый формат"""
         return {
-            "id": self.id,
+            "supply_id": self.supply_id,
+            "preorder_id": self.preorder_id,
             "user_id": self.user_id,
             "client_id": str(self.client_id),
             "status": self.status.name if self.status else None,
-
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "api_created_at": self.api_created_at.isoformat() if self.api_created_at else None,
-
             "start_catch_date": self.start_catch_date.isoformat() if self.start_catch_date else None,
             "end_catch_date": self.end_catch_date.isoformat() if self.end_catch_date else None,
-
             "skip_dates": [d.isoformat() for d in self.skip_dates] if self.skip_dates else [],
             "coefficient": float(self.coefficient) if self.coefficient is not None else None,
-
             "warehouse_name": self.warehouse_name,
             "warehouse_address": self.warehouse_address,
             "box_type": self.box_type,
             "price": self.price,
-
             "client_name": self.client.name if self.client else None,
             "user_name": self.user.username if self.user else None
         }
+
 
 class Subscription(Base):
     __tablename__ = "subscriptions"

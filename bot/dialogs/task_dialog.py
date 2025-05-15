@@ -57,7 +57,7 @@ async def get_supplies_list(dialog_manager: DialogManager, **kwargs):
     if not client_id:
         return {"supplies": [], "supply_details": []}
 
-    db_supplies = await orm_controller.get_supplies_by_client(tg_id, client_id)
+    db_supplies = await orm_controller.supply.get_supplies_by_client(tg_id, client_id)
 
     if not db_supplies:
         return {"supplies": [], "supply_details": ["📦 Нет поставок."]}
@@ -99,7 +99,7 @@ async def get_active_catching_tasks(dialog_manager: DialogManager, **kwargs):
             "supply_details": ["❌ Не выбран кабинет или client_id не указан."]
         }
 
-    all_supplies = await orm_controller.get_supplies_by_client(tg_id, client_id)
+    all_supplies = await orm_controller.supply.get_supplies_by_client(tg_id, client_id)
     catching_supplies = [
         s for s in all_supplies
         if Status.from_str(s.get("status")) == Status.CATCHING
@@ -216,7 +216,7 @@ async def get_active_tasks(dialog_manager: DialogManager, **kwargs):
     if not client_id:
         return {"tasks": [], "selected_client_name": "❓ Неизвестно"}
 
-    all_supplies = await orm_controller.get_supplies_by_client(tg_id, client_id)
+    all_supplies = await orm_controller.supply.get_supplies_by_client(tg_id, client_id)
     catching_tasks = [
         {
             "id": supply["id"],
@@ -229,7 +229,7 @@ async def get_active_tasks(dialog_manager: DialogManager, **kwargs):
     ]
 
     # Имя клиента
-    client = await orm_controller.get_client_by_id(client_id)
+    client = await orm_controller.supply.get_client_by_id(client_id)
     client_name = client.name if client else "❓ Неизвестно"
 
     return {"tasks": catching_tasks, "selected_client_name": client_name}

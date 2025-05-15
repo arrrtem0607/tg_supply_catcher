@@ -5,13 +5,15 @@ from aiogram_dialog.widgets.kbd import Select, Button, ScrollingGroup, Back, Cal
 from aiogram_dialog.widgets.text import Jinja, Format, Const
 from aiogram_dialog import DialogManager
 from aiogram.types import CallbackQuery
+
 from database.controller.orm_instance import get_orm
 from bot.utils.statesform import SupplyStates
 from database.enums import Status
 from services.utils.logger import setup_logger
+from services.utils.mpwave_api import MPWAVEAPI
 
 logger = setup_logger(__name__)
-
+mpwave_api = MPWAVEAPI()
 orm_controller = get_orm()
 
 PAGE_SIZE = 5  # Количество поставок на одной странице
@@ -30,12 +32,16 @@ async def cancel_catch(manager: DialogManager):
     client_id = manager.dialog_data["selected_client"]
     manager.dialog_data["force_reload"] = True
 
-    result = await orm_controller.cancel_catching(client_id=client_id, supply_id=supply_id)
+    #TODO: Отправить запрос на отмену поставки через MPWAVE_API и обработать ответ
 
-    if "error" in result:
-        await manager.event.message.answer(f"❌ {result['error']}")
-    else:
-        await manager.event.message.answer(f"✅ {result['message']}")
+    await mpwave_api.cancel_task_api(client_id, supply_id)
+
+    # result = await orm_controller.cancel_catching(client_id=client_id, supply_id=supply_id)
+    #
+    # if "error" in result:
+    #     await manager.event.message.answer(f"❌ {result['error']}")
+    # else:
+    #     await manager.event.message.answer(f"✅ {result['message']}")
 
     # Очистка временных данных
     for key in ("selected_supply", "start_date", "end_date", "skip_dates", "coefficient", "is_catching"):
@@ -54,7 +60,7 @@ async def get_supply_options(dialog_manager: DialogManager, **kwargs):
     dialog_manager.dialog_data["selected_client"] = client_id
 
     # Получаем статус из базы данных
-    supply = await orm_controller.get_supply_by_id(supply_id)
+    supply = await orm_controller.supply.get_supply_by_id(supply_id)
     is_catching = False
     if supply:
         is_catching = supply.status == Status.CATCHING
@@ -117,18 +123,29 @@ async def on_confirm(callback: CallbackQuery, button, manager: DialogManager):
     coefficient = manager.dialog_data["coefficient"]
     manager.dialog_data["force_reload"] = True
 
-    result = await orm_controller.confirm_supply_catching(
-        supply_id=supply_id,
-        start_date=start_date,
-        end_date=end_date,
-        skip_dates=skip_dates,
-        coefficient=coefficient
-    )
+    #TODO: Отправить запрос на MPWAVE_API о начале отлова и обратать ответ сервера
+    data = {
+        "supply_id": supply_id,
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+        "skip_dates": [d.isoformat() for d in skip_dates],
+        "coefficient": coefficient
+    }
 
-    if "error" in result:
-        await callback.message.answer(f"❌ {result['error']}")
-    else:
-        await callback.message.answer(f"✅ {result['message']}")
+    await mpwave_api.start_task_api(data)
+
+    # result = await orm_controller.confirm_supply_catching(
+    #     supply_id=supply_id,
+    #     start_date=start_date,
+    #     end_date=end_date,
+    #     skip_dates=skip_dates,
+    #     coefficient=coefficient
+    # )
+
+    # if "error" in result:
+    #     await callback.message.answer(f"❌ {result['error']}")
+    # else:
+    #     await callback.message.answer(f"✅ {result['message']}")
 
     # Очистка временных данных
     for key in ("selected_supply", "start_date", "end_date", "skip_dates", "coefficient", "is_catching"):
