@@ -4,9 +4,10 @@ from sqlalchemy.orm import joinedload
 from database.db_utils import session_manager
 from database.entities.models import Supply, Client
 from database.enums import Status
+from database.entities.core import Database
 from services.utils.logger import setup_logger
 
-logger = setup_logger(__name__)
+logger = setup_logger(__name__, level="WARNING")
 
 STATUS_TRANSLATION = {
     "RECEIVED": "📥 Получено",
@@ -20,7 +21,8 @@ STATUS_TRANSLATION = {
 }
 
 class SupplyController:
-    def __init__(self):
+    def __init__(self, db: Database = Database()):
+        self.db = db
         logger.info("SupplyController initialized")
 
     @session_manager

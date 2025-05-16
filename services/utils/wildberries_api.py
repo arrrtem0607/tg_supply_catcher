@@ -10,7 +10,7 @@ from aiohttp import ClientResponseError, ClientSession
 from configurations.reading_env import Env
 from services.utils.logger import setup_logger
 
-logger = setup_logger(__name__)
+logger = setup_logger(__name__, level="WARNING")
 
 def use_proxy(func):
     @functools.wraps(func)

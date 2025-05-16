@@ -11,7 +11,7 @@ from bot import get_all_routers
 from services.utils.logger import setup_logger
 from bot.middlewares.db_middleware import initialize_database
 
-logger = setup_logger(__name__)
+logger = setup_logger(__name__, level="WARNING")
 
 async def setup_bot_commands(bot: Bot):
     commands = [

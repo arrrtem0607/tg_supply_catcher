@@ -11,7 +11,7 @@ from database.db_utils import session_manager
 from database.entities.models import Mailing, MailingStatus, User
 from services.utils.logger import setup_logger
 
-logger = setup_logger(__name__)
+logger = setup_logger(__name__, level="WARNING")
 config = get_config()
 bot = Bot(token=config.bot_config.get_token())
 

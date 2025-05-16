@@ -12,7 +12,7 @@ from database.controller.supply_controller import SupplyController
 from database.db_utils import session_manager
 from services.utils.logger import setup_logger
 
-logger = setup_logger(__name__)
+logger = setup_logger(__name__, level="WARNING")
 
 class ORMController:
     def __init__(self, db: Database = Database()):
@@ -20,7 +20,7 @@ class ORMController:
         self.api = MPWAVEAPI()
         self.wb_api = WildberriesAPI()
         self.balance = BalanceController(db)
-        self.supply = SupplyController()
+        self.supply = SupplyController(db)
         logger.info("ORMController initialized")
 
     async def create_tables(self):

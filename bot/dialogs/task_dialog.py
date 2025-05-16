@@ -12,10 +12,12 @@ from bot.utils.statesform import ManageClientStates, MainMenu, AddClientStates, 
 from bot.utils.castom_scroll import sync_scroll, ManagedScroll
 from database.enums import Status
 from services.utils.logger import setup_logger
+from services.utils.mpwave_api import MPWAVEAPI
 
 logger = setup_logger(__name__)
 
 orm_controller = get_orm()
+api = MPWAVEAPI()
 
 PAGE_SIZE = 5  # Количество поставок на одной странице
 
@@ -56,6 +58,7 @@ async def get_supplies_list(dialog_manager: DialogManager, **kwargs):
 
     if not client_id:
         return {"supplies": [], "supply_details": []}
+    await api.fetch_supplies_from_api(str(tg_id), client_id)
 
     db_supplies = await orm_controller.supply.get_supplies_by_client(tg_id, client_id)
 

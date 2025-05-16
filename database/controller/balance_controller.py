@@ -5,7 +5,7 @@ from database.entities.core import Database
 from database.db_utils import session_manager
 from services.utils.logger import setup_logger
 
-logger = setup_logger(__name__)
+logger = setup_logger(__name__, level="WARNING")
 
 
 class BalanceController:

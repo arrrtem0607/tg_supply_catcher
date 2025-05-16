@@ -1,8 +1,9 @@
+import logging
 import aiohttp
-
+import uuid
 from services.utils.logger import setup_logger
 
-logger = setup_logger(__name__)
+logger = setup_logger(__name__, level="WARNING")
 
 STATUS_TRANSLATION = {
     "RECEIVED": "📥 Получено",
@@ -37,9 +38,14 @@ class MPWAVEAPI:
         async with aiohttp.ClientSession() as session:
             try:
                 logger.debug(f"🔄 POST {url} | data={{'tg_id': {tg_id}, 'name': '{name}'}}")
+                logger.debug({"user_id": tg_id,
+                            "client_id": client_id,
+                            "name": name,
+                            "cookies": cookies,
+                            "refresh_token": refresh_token}, type(tg_id), type(client_id), type(name), type(cookies), type(refresh_token))
                 response = await session.post(
                     url,
-                    params={"user_id": tg_id,
+                    json={"user_id": tg_id,
                             "client_id": client_id,
                             "name": name,
                             "cookies": cookies,
@@ -120,9 +126,9 @@ class MPWAVEAPI:
                 return None
 
     @staticmethod
-    async def fetch_supplies_from_api(client_id: str):
+    async def fetch_supplies_from_api(user_id: str, client_id: str):
         url = f"{MPWAVEAPI.BASE_URL}/catcher/all_supplies"
-        params = {"client_id": client_id}
+        params = {"client_id": client_id, "user_id": user_id}
 
         async with aiohttp.ClientSession() as http_session:
             try:

@@ -4,7 +4,7 @@ from datetime import datetime
 from sqlalchemy import (
     Integer, Text, BigInteger, DateTime, ForeignKey, func, Enum, ARRAY,
     TIMESTAMP, String, Boolean, PrimaryKeyConstraint, ForeignKeyConstraint,
-    Table, Column
+    Table, Column,  UniqueConstraint
 )
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID
@@ -63,23 +63,25 @@ class Client(Base):
 class Supply(Base):
     __tablename__ = "supplyes"
     __table_args__ = (
-        PrimaryKeyConstraint("preorder_id", "user_id", name="pk_supplyes"),
         ForeignKeyConstraint(
             ["client_id", "user_id"],
-            ["public.clients.client_id", "public.clients.user_id"]
+            ["public.clients.client_id", "public.clients.user_id"],
         ),
+        UniqueConstraint("preorder_id", "user_id", "supply_id", name="uq_supplyes_combination"),
         {"schema": "public"},
     )
 
-    # Уникальный ID поставки (больше не PK)
-    preorder_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    # Новый surrogate PK
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+
+    preorder_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     supply_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    status: Mapped[Status] = mapped_column(Enum(Status), default=Status.RECEIVED)
+    status: Mapped[Status] = mapped_column(Enum(Status), default=Status.RECEIVED, nullable=False)
 
     client_id: Mapped[str] = mapped_column(String(100), nullable=False)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("public.users.tg_id"), nullable=False)
 
-    created_at: Mapped[datetime] = mapped_column(TIMESTAMP, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP, server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP, server_default=func.now(), server_onupdate=func.now(), nullable=True)
     api_created_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
 
@@ -99,6 +101,7 @@ class Supply(Base):
 
     def to_dict(self):
         return {
+            "id": self.id,
             "supply_id": self.supply_id,
             "preorder_id": self.preorder_id,
             "user_id": self.user_id,
