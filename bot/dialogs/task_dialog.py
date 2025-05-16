@@ -71,7 +71,12 @@ async def get_supplies_list(dialog_manager: DialogManager, **kwargs):
     supply_text_list = []
 
     for supply in db_supplies:
-        supply_id = str(supply.get("id", "❌ Без ID"))
+        supply_id = str(
+            supply.get("supply_id") or
+            supply.get("preorder_id") or
+            supply.get("id") or
+            "❌ Без ID"
+        )
         warehouse_name = supply.get("warehouse_name", "❌ Неизвестный склад")
         box_type = supply.get("box_type", "❌ Неизвестный тип")
         status_enum = Status.from_str(supply.get("status", ""))
